@@ -89,6 +89,9 @@ const els = {
   helpToggle: document.getElementById('helpToggle'),
   helpPanel: document.getElementById('helpPanel'),
   helpClose: document.getElementById('helpClose'),
+  settingsToggle: document.getElementById('settingsToggle'),
+  settingsPanel: document.getElementById('settingsPanel'),
+  settingsClose: document.getElementById('settingsClose'),
   shortcutsPanel: document.getElementById('shortcutsPanel'),
   shortcutsClose: document.getElementById('shortcutsClose'),
   saveProjectBtn: document.getElementById('saveProjectBtn'),
@@ -100,10 +103,34 @@ const els = {
   contextMenu: document.getElementById('contextMenu'),
   themeToggle: document.getElementById('themeToggle'),
   inspectorResizeHandle: document.getElementById('inspectorResizeHandle'),
+  aiTunePanelBtn: document.getElementById('aiTunePanelBtn'),
+  geminiApiKeyInput: document.getElementById('geminiApiKeyInput'),
+  geminiApiKeyToggle: document.getElementById('geminiApiKeyToggle'),
+  geminiApiKeySaveBtn: document.getElementById('geminiApiKeySaveBtn'),
+  geminiApiKeySavedMsg: document.getElementById('geminiApiKeySavedMsg'),
+  geminiModelInput: document.getElementById('geminiModelInput'),
+  geminiModelSaveBtn: document.getElementById('geminiModelSaveBtn'),
+  geminiListModelsBtn: document.getElementById('geminiListModelsBtn'),
+  geminiModelList: document.getElementById('geminiModelList'),
+  aiDialog: document.getElementById('aiDialog'),
+  aiDialogTitle: document.getElementById('aiDialogTitle'),
+  aiDialogCloseBtn: document.getElementById('aiDialogCloseBtn'),
+  aiInputPreview: document.getElementById('aiInputPreview'),
+  aiInputImg: document.getElementById('aiInputImg'),
+  aiPromptInput: document.getElementById('aiPromptInput'),
+  aiGenerateBtn: document.getElementById('aiGenerateBtn'),
+  aiStatus: document.getElementById('aiStatus'),
+  aiOutputPreview: document.getElementById('aiOutputPreview'),
+  aiResultImg: document.getElementById('aiResultImg'),
+  aiApplyBtn: document.getElementById('aiApplyBtn'),
+  aiCancelBtn: document.getElementById('aiCancelBtn'),
 };
 
 const THEME_STORAGE_KEY = 'gina-theme';
 const INSPECTOR_WIDTH_STORAGE_KEY = 'gina-inspector-width';
+const GEMINI_API_KEY_STORAGE_KEY = 'gina-gemini-api-key';
+const GEMINI_MODEL_STORAGE_KEY = 'gina-gemini-model';
+const GEMINI_DEFAULT_MODEL = 'gemini-2.5-flash-image-preview';
 const INSPECTOR_MIN_WIDTH = 240;
 const INSPECTOR_MAX_WIDTH = 640;
 const STAGE_MIN_WIDTH = 360;
@@ -1484,6 +1511,8 @@ els.contextMenu.addEventListener('click', (e) => {
     pendingPanelOverlay = { coords: { ...contextMenuTargetCoords }, panelId: panel.id };
     els.panelOverlayFileInput.value = '';
     els.panelOverlayFileInput.click();
+  } else if (action === 'add-ai-bubble') {
+    openAiDialogForBubble({ ...contextMenuTargetCoords });
   }
 });
 
@@ -1553,6 +1582,10 @@ document.addEventListener('mousedown', (e) => {
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !els.contextMenu.hidden) {
     hideContextMenu();
+  } else if (e.key === 'Escape' && !els.aiDialog.hidden) {
+    closeAiDialog();
+  } else if (e.key === 'Escape' && !els.settingsPanel.hidden) {
+    els.settingsPanel.hidden = true;
   } else if (e.key === 'Escape' && !els.helpPanel.hidden) {
     els.helpPanel.hidden = true;
   } else if (e.key === 'Escape' && !els.shortcutsPanel.hidden) {
@@ -3676,6 +3709,12 @@ els.helpClose.addEventListener('click', () => {
 els.shortcutsClose.addEventListener('click', () => {
   els.shortcutsPanel.hidden = true;
 });
+els.settingsToggle.addEventListener('click', () => {
+  els.settingsPanel.hidden = !els.settingsPanel.hidden;
+});
+els.settingsClose.addEventListener('click', () => {
+  els.settingsPanel.hidden = true;
+});
 
 // textarea への入力を現在ページのメモに反映
 els.memoText.addEventListener('input', () => {
@@ -3858,6 +3897,309 @@ els.exportBtn.addEventListener('click', async () => {
     alert('PNG 書き出しに失敗しました: ' + (err && err.message ? err.message : err));
   } finally {
     els.exportBtn.disabled = !hasPageVisualContent(cur);
+  }
+});
+
+// --- Gemini AI 画像生成 ---
+
+function getGeminiApiKey() {
+  try { return localStorage.getItem(GEMINI_API_KEY_STORAGE_KEY) || ''; } catch { return ''; }
+}
+
+function storeGeminiApiKey(key) {
+  try {
+    if (key) localStorage.setItem(GEMINI_API_KEY_STORAGE_KEY, key);
+    else localStorage.removeItem(GEMINI_API_KEY_STORAGE_KEY);
+  } catch {}
+}
+
+function getGeminiModel() {
+  try { return localStorage.getItem(GEMINI_MODEL_STORAGE_KEY) || GEMINI_DEFAULT_MODEL; } catch { return GEMINI_DEFAULT_MODEL; }
+}
+
+function storeGeminiModel(model) {
+  try {
+    if (model) localStorage.setItem(GEMINI_MODEL_STORAGE_KEY, model);
+    else localStorage.removeItem(GEMINI_MODEL_STORAGE_KEY);
+  } catch {}
+}
+
+// API キーで利用可能なモデル一覧を取得し、generateContent をサポートするものを返す
+async function listGeminiModels() {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) throw new Error('Gemini API Key が設定されていません。');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=200`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    let msg = `API エラー (${res.status})`;
+    try { const j = await res.json(); if (j?.error?.message) msg += ': ' + j.error.message; } catch {}
+    throw new Error(msg);
+  }
+  const json = await res.json();
+  return (json.models || []).filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'));
+}
+
+// Gemini が受け付ける画像形式に正規化する。MIME が image/png|jpeg|webp 以外
+// (application/octet-stream など)の場合は canvas で PNG に焼き直す。
+const GEMINI_SUPPORTED_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'];
+
+function reencodeDataUrlToPng(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => reject(new Error('入力画像の読み込みに失敗しました。'));
+    img.src = dataUrl;
+  });
+}
+
+async function normalizeImageDataUrl(dataUrl) {
+  const mimeMatch = dataUrl.match(/^data:([^;]+)/);
+  const mime = mimeMatch ? mimeMatch[1] : '';
+  if (GEMINI_SUPPORTED_MIME.includes(mime)) return dataUrl;
+  return reencodeDataUrlToPng(dataUrl);
+}
+
+async function callGeminiImageGeneration(prompt, inputImageDataUrl) {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) throw new Error('Gemini API Key が設定されていません。設定画面の「AI（Gemini）」から設定してください。');
+
+  const parts = [];
+  if (inputImageDataUrl) {
+    const normalized = await normalizeImageDataUrl(inputImageDataUrl);
+    const comma = normalized.indexOf(',');
+    const header = normalized.slice(0, comma);
+    const data = normalized.slice(comma + 1);
+    const mimeMatch = header.match(/data:([^;]+)/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+    parts.push({ inlineData: { mimeType, data } });
+  }
+  parts.push({ text: prompt });
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${getGeminiModel()}:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
+    }),
+  });
+
+  if (!res.ok) {
+    let msg = `API エラー (${res.status})`;
+    try {
+      const errJson = await res.json();
+      const detail = errJson?.error?.message;
+      if (detail) msg += ': ' + detail;
+    } catch {}
+    throw new Error(msg);
+  }
+
+  const json = await res.json();
+  const responseParts = json?.candidates?.[0]?.content?.parts || [];
+  const imgPart = responseParts.find((p) => p.inlineData?.data);
+  if (!imgPart) {
+    const textPart = responseParts.find((p) => p.text);
+    throw new Error(textPart ? 'モデルの応答(テキスト): ' + textPart.text : '画像が生成されませんでした。');
+  }
+  return `data:${imgPart.inlineData.mimeType || 'image/png'};base64,${imgPart.inlineData.data}`;
+}
+
+// AI ダイアログの状態
+const aiDialogState = {
+  mode: null,
+  targetPanel: null,
+  targetCoords: null,
+  resultDataUrl: null,
+};
+
+function resetAiDialogOutput() {
+  els.aiPromptInput.value = '';
+  els.aiOutputPreview.hidden = true;
+  els.aiResultImg.src = '';
+  els.aiStatus.hidden = true;
+  els.aiStatus.textContent = '';
+  els.aiApplyBtn.disabled = true;
+  els.aiGenerateBtn.disabled = false;
+}
+
+function openAiDialogForPanel(panel) {
+  if (!panel?.material) {
+    alert('素材が設定されていません。まずコマに画像を配置してください。');
+    return;
+  }
+  aiDialogState.mode = 'panel';
+  aiDialogState.targetPanel = panel;
+  aiDialogState.resultDataUrl = null;
+  els.aiDialogTitle.textContent = 'AI でコマ画像を微調整';
+  els.aiInputPreview.hidden = false;
+  els.aiInputImg.src = panel.material.src;
+  els.aiPromptInput.placeholder = '例: 夜のシーンにして / もっとダークな雰囲気に / 雨の効果を加えて';
+  resetAiDialogOutput();
+  els.aiDialog.hidden = false;
+  els.aiPromptInput.focus();
+}
+
+function openAiDialogForBubble(coords) {
+  aiDialogState.mode = 'bubble';
+  aiDialogState.targetPanel = null;
+  aiDialogState.targetCoords = coords;
+  aiDialogState.resultDataUrl = null;
+  els.aiDialogTitle.textContent = 'AI で吹き出しを生成';
+  els.aiInputPreview.hidden = true;
+  els.aiInputImg.src = '';
+  els.aiPromptInput.placeholder = '例: ギザギザした怒りの吹き出し / 丸くてかわいい吹き出し / 大きなテール付き吹き出し';
+  resetAiDialogOutput();
+  els.aiDialog.hidden = false;
+  els.aiPromptInput.focus();
+}
+
+function closeAiDialog() {
+  els.aiDialog.hidden = true;
+  aiDialogState.mode = null;
+  aiDialogState.targetPanel = null;
+  aiDialogState.resultDataUrl = null;
+}
+
+els.aiGenerateBtn.addEventListener('click', async () => {
+  const prompt = els.aiPromptInput.value.trim();
+  if (!prompt) { alert('プロンプトを入力してください。'); return; }
+
+  els.aiGenerateBtn.disabled = true;
+  els.aiApplyBtn.disabled = true;
+  els.aiOutputPreview.hidden = true;
+  els.aiStatus.textContent = '生成中...';
+  els.aiStatus.hidden = false;
+
+  try {
+    let fullPrompt;
+    let inputImage = null;
+    if (aiDialogState.mode === 'panel') {
+      inputImage = aiDialogState.targetPanel?.material?.src || null;
+      fullPrompt = prompt;
+    } else {
+      fullPrompt = `漫画の吹き出し。${prompt}。白い塗りつぶし、黒いアウトライン、白い背景。テキストや文字を含めないこと。`;
+    }
+    const dataUrl = await callGeminiImageGeneration(fullPrompt, inputImage);
+    aiDialogState.resultDataUrl = dataUrl;
+    els.aiResultImg.src = dataUrl;
+    els.aiOutputPreview.hidden = false;
+    els.aiStatus.textContent = '生成完了';
+    els.aiApplyBtn.disabled = false;
+  } catch (err) {
+    els.aiStatus.textContent = '失敗: ' + (err?.message || String(err));
+    console.error(err);
+  } finally {
+    els.aiGenerateBtn.disabled = false;
+  }
+});
+
+els.aiApplyBtn.addEventListener('click', async () => {
+  const dataUrl = aiDialogState.resultDataUrl;
+  if (!dataUrl) return;
+
+  if (aiDialogState.mode === 'panel') {
+    const panel = aiDialogState.targetPanel;
+    if (!panel) return;
+    const sz = await getImageNaturalSize(dataUrl);
+    recordUndo();
+    panel.material = { src: dataUrl, naturalWidth: sz.width, naturalHeight: sz.height, tx: 0, ty: 0, scale: 1, rotation: 0 };
+    cur.selectedPanelId = panel.id;
+    renderPanels();
+    updateActionButtons();
+  } else if (aiDialogState.mode === 'bubble') {
+    const coords = aiDialogState.targetCoords || { x: cur.canvasWidth / 2, y: cur.canvasHeight / 2 };
+    const sz = await getImageNaturalSize(dataUrl);
+    const w = cur.canvasWidth * 0.4;
+    const h = sz.width > 0 ? w * (sz.height / sz.width) : w;
+    addOverlayLayer({ x: coords.x - w / 2, y: coords.y - h / 2, src: dataUrl, width: w, height: h, naturalWidth: sz.width, naturalHeight: sz.height });
+  }
+  closeAiDialog();
+});
+
+els.aiCancelBtn.addEventListener('click', closeAiDialog);
+els.aiDialogCloseBtn.addEventListener('click', closeAiDialog);
+els.aiDialog.addEventListener('click', (e) => { if (e.target === els.aiDialog) closeAiDialog(); });
+
+// AI パネル微調整ボタン
+els.aiTunePanelBtn.addEventListener('click', () => {
+  openAiDialogForPanel(getSelectedPanel());
+});
+
+// AI 設定: API Key / モデル管理
+(function initGeminiSettingsUi() {
+  const stored = getGeminiApiKey();
+  if (stored) els.geminiApiKeyInput.value = stored;
+  els.geminiModelInput.value = getGeminiModel();
+}());
+
+els.geminiApiKeySaveBtn.addEventListener('click', () => {
+  storeGeminiApiKey(els.geminiApiKeyInput.value.trim());
+  els.geminiApiKeySavedMsg.hidden = false;
+  setTimeout(() => { els.geminiApiKeySavedMsg.hidden = true; }, 2000);
+});
+
+els.geminiApiKeyToggle.addEventListener('click', () => {
+  const isHidden = els.geminiApiKeyInput.type === 'password';
+  els.geminiApiKeyInput.type = isHidden ? 'text' : 'password';
+  els.geminiApiKeyToggle.textContent = isHidden ? '非表示' : '表示';
+});
+
+els.geminiModelSaveBtn.addEventListener('click', () => {
+  const model = els.geminiModelInput.value.trim() || GEMINI_DEFAULT_MODEL;
+  storeGeminiModel(model);
+  els.geminiModelInput.value = model;
+  els.geminiApiKeySavedMsg.hidden = false;
+  setTimeout(() => { els.geminiApiKeySavedMsg.hidden = true; }, 2000);
+});
+
+els.geminiListModelsBtn.addEventListener('click', async () => {
+  const box = els.geminiModelList;
+  box.hidden = false;
+  box.textContent = '取得中...';
+  try {
+    const models = await listGeminiModels();
+    box.innerHTML = '';
+    if (models.length === 0) {
+      box.textContent = '利用可能なモデルがありませんでした。';
+      return;
+    }
+    // 画像生成系を上に並べると選びやすい（名前に image を含むもの）
+    models.sort((a, b) => {
+      const ai = /image/i.test(a.name) ? 0 : 1;
+      const bi = /image/i.test(b.name) ? 0 : 1;
+      return ai - bi;
+    });
+    const hint = document.createElement('p');
+    hint.className = 'help-note';
+    hint.textContent = '画像生成には名前に「image」を含むモデルを選んでください。クリックで上の欄に設定されます。';
+    box.appendChild(hint);
+    for (const m of models) {
+      const id = (m.name || '').replace(/^models\//, '');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ai-model-item';
+      if (/image/i.test(id)) btn.classList.add('is-image');
+      btn.textContent = id;
+      btn.title = m.description || id;
+      btn.addEventListener('click', () => {
+        els.geminiModelInput.value = id;
+        storeGeminiModel(id);
+        els.geminiApiKeySavedMsg.hidden = false;
+        setTimeout(() => { els.geminiApiKeySavedMsg.hidden = true; }, 2000);
+      });
+      box.appendChild(btn);
+    }
+  } catch (err) {
+    box.textContent = '失敗: ' + (err?.message || String(err));
+    console.error(err);
   }
 });
 

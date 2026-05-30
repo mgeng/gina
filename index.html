@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gina 20260530-02</title>
+  <title>Gina 20260530-06</title>
   <link rel="stylesheet" href="styles/style.css" />
 </head>
 <body>
@@ -24,6 +24,7 @@
       <button id="exportBtn" class="btn" disabled>PNG書き出し</button>
       <button id="exportAllBtn" class="btn" disabled title="全ページをまとめてZIPに書き出し">一括PNG</button>
       <button id="memoToggle" class="btn">メモ</button>
+      <button id="settingsToggle" class="btn btn-secondary" type="button" title="設定">設定</button>
       <button id="helpToggle" class="btn" type="button" title="ヘルプ（Ctrl+H）">Help</button>
     </div>
   </header>
@@ -163,6 +164,39 @@
     </div>
   </div>
 
+  <div id="settingsPanel" class="help-panel" role="dialog" aria-modal="true" aria-labelledby="settingsTitle" hidden>
+    <div class="help-header">
+      <span id="settingsTitle" class="help-title">設定</span>
+      <button id="settingsClose" class="memo-close" aria-label="閉じる" title="閉じる">×</button>
+    </div>
+    <div class="help-body">
+      <section class="help-section">
+        <h3>AI（Gemini）</h3>
+        <p class="help-note">画像生成 API を使ってコマ画像の微調整や吹き出し生成を行います。API Key はこのブラウザ内にのみ保存され、外部には送信されません。</p>
+        <label class="field">
+          <span>Gemini API Key</span>
+          <div class="api-key-row">
+            <input type="password" id="geminiApiKeyInput" class="api-key-input" placeholder="API Key を入力..." autocomplete="off" spellcheck="false" />
+            <button id="geminiApiKeyToggle" class="btn btn-secondary" type="button">表示</button>
+          </div>
+        </label>
+        <div class="field-row">
+          <button id="geminiApiKeySaveBtn" class="btn">保存</button>
+          <span id="geminiApiKeySavedMsg" class="ai-saved-msg" hidden>保存しました</span>
+        </div>
+        <label class="field">
+          <span>画像生成モデル</span>
+          <input type="text" id="geminiModelInput" class="api-key-input" placeholder="gemini-2.5-flash-image-preview" autocomplete="off" spellcheck="false" />
+        </label>
+        <div class="field-row">
+          <button id="geminiModelSaveBtn" class="btn">モデルを保存</button>
+          <button id="geminiListModelsBtn" class="btn btn-secondary">利用可能なモデルを確認</button>
+        </div>
+        <div id="geminiModelList" class="ai-model-list" hidden></div>
+      </section>
+    </div>
+  </div>
+
   <main id="app">
     <section id="stageWrapper" class="stage-wrapper">
       <div id="stage" class="stage">
@@ -224,6 +258,9 @@
         <div class="field-row">
           <button id="materialResetBtn" class="btn">位置をリセット</button>
           <button id="materialRemoveBtn" class="btn btn-danger">画像を外す</button>
+        </div>
+        <div class="field-row">
+          <button id="aiTunePanelBtn" class="btn">AI で微調整...</button>
         </div>
       </div>
 
@@ -306,8 +343,41 @@
     <button type="button" class="context-menu-item" data-action="add-bubble">フキダシ</button>
     <button type="button" class="context-menu-item" data-action="add-overlay">画像を上から追加</button>
     <button type="button" class="context-menu-item" data-action="add-panel-overlay">画像をコマに重ねて追加</button>
+    <hr class="context-menu-sep" />
+    <button type="button" class="context-menu-item" data-action="add-ai-bubble">AI 吹き出しを生成...</button>
     <input type="file" id="overlayFileInput" accept="image/*" hidden />
     <input type="file" id="panelOverlayFileInput" accept="image/*" hidden />
+  </div>
+
+  <div id="aiDialog" class="ai-dialog-overlay" hidden role="dialog" aria-modal="true">
+    <div class="ai-dialog-inner">
+      <div class="ai-dialog-header">
+        <span id="aiDialogTitle" class="ai-dialog-title">AI 画像生成</span>
+        <button id="aiDialogCloseBtn" class="memo-close" type="button" aria-label="閉じる">×</button>
+      </div>
+      <div class="ai-dialog-body">
+        <div id="aiInputPreview" class="ai-preview-box" hidden>
+          <p class="ai-preview-label">入力画像（現在の素材）</p>
+          <img id="aiInputImg" src="" alt="" />
+        </div>
+        <label class="field">
+          <span>プロンプト（指示）</span>
+          <textarea id="aiPromptInput" class="ai-prompt-input" rows="4"></textarea>
+        </label>
+        <div class="field-row">
+          <button id="aiGenerateBtn" class="btn" type="button">生成</button>
+        </div>
+        <div id="aiStatus" class="ai-status" hidden></div>
+        <div id="aiOutputPreview" class="ai-preview-box" hidden>
+          <p class="ai-preview-label">生成結果</p>
+          <img id="aiResultImg" src="" alt="生成結果" />
+        </div>
+        <div class="field-row ai-dialog-actions">
+          <button id="aiApplyBtn" class="btn" type="button" disabled>適用</button>
+          <button id="aiCancelBtn" class="btn btn-secondary" type="button">キャンセル</button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <script src="assets/vendor/jszip.min.js" defer></script>
