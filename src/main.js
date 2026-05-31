@@ -32,6 +32,8 @@ function registerFonts() {
 
 registerFonts();
 
+// === DOM要素 ===
+
 const els = {
   fileInput: document.getElementById('fileInput'),
   openBtn: document.getElementById('openBtn'),
@@ -125,6 +127,8 @@ const els = {
   aiApplyBtn: document.getElementById('aiApplyBtn'),
   aiCancelBtn: document.getElementById('aiCancelBtn'),
 };
+
+// === テーマ / インスペクタ幅 / UIパネル ===
 
 const THEME_STORAGE_KEY = 'gina-theme';
 const INSPECTOR_WIDTH_STORAGE_KEY = 'gina-inspector-width';
@@ -250,6 +254,8 @@ function toggleShortcutsPanel() {
   els.shortcutsPanel.hidden = !els.shortcutsPanel.hidden;
 }
 
+// === コマ割り定数・テンプレート ===
+
 // コマ割りテンプレート。panels は 0-1 の正規化座標（{x,y,w,h}）。
 // 初期状態は 'one'（1コマ全面）。「テンプレなし」は廃止。
 const DEFAULT_TEMPLATE = 'one';
@@ -359,6 +365,8 @@ const BUNDLE_EXT = '.mj';
 const BUNDLE_TEXT_NAME = 'text.json';
 const BUNDLE_MEMO_NAME = 'memo.txt';
 
+// === ファイルI/O ===
+
 function detectFileKind(file) {
   const name = file.name || '';
   const type = file.type || '';
@@ -403,6 +411,8 @@ function openFiles(files) {
   loadMemoFiles(sortFilesByName(memoFiles));
 }
 
+// === ページ管理・状態 ===
+
 const MAX_PAGES = 16;
 
 function createEmptyPage() {
@@ -443,6 +453,8 @@ function updateDocumentTitle() {
 }
 
 let cur = state.pages[0];
+
+// === Undo ===
 
 const UNDO_LIMIT = 5;
 const undoStack = [];
@@ -584,6 +596,8 @@ function undoLastChange() {
   return true;
 }
 
+// === ページ状態判定・UI更新 ===
+
 // 何か書き出す/保存する価値があるかどうか。コマ割りは常に存在する前提なので、
 // 「素材かテキストが何か置かれているか」で判定する。
 function hasPageVisualContent(page) {
@@ -654,6 +668,8 @@ function refreshPageView() {
   syncStickerHandles();
   updateInspector();
 }
+
+// === コマ(パネル) — ジオメトリ・辺ドラッグ ===
 
 function isCanvasEdge(p, edge) {
   const EPS = 0.001;
@@ -801,6 +817,8 @@ function startEdgeDrag(panel, edge, startEvent) {
   document.addEventListener('mouseup', onUp);
 }
 
+// === コマ(パネル) — 素材(material)・フォーカス ===
+
 // 素材 img を「コマ全体を覆う cover フィット」を基準に、user の tx/ty/scale/rotation で動かす。
 function applyMaterialTransform(img, panel, panelEl) {
   const m = panel.material;
@@ -943,6 +961,8 @@ function startMaterialDrag(panel, panelEl, startEvent) {
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onUp);
 }
+
+// === コマ(パネル) — レンダリング・選択・操作 ===
 
 function renderPanels() {
   els.panelContainer.innerHTML = '';
@@ -1193,6 +1213,8 @@ els.templateSelect.addEventListener('change', () => {
   applyTemplate(newTemplate);
 });
 
+// === キャンバスサイズ / ボーダー / ガター ===
+
 function applyPanelBorderWidth(px) {
   document.documentElement.style.setProperty('--panel-border-width', `${px}px`);
   els.panelBorderValue.textContent = String(px);
@@ -1313,6 +1335,8 @@ els.deletePageBtn.addEventListener('click', () => {
 
 updatePageIndicator();
 
+// === フォントUI ===
+
 function populateFontSelect() {
   els.propFont.innerHTML = '';
   for (const f of FONTS) {
@@ -1423,6 +1447,8 @@ els.stageWrapper.addEventListener('drop', (e) => {
   openFile(file);
 });
 
+// === 画像ユーティリティ ===
+
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1461,6 +1487,8 @@ els.stage.addEventListener('contextmenu', (e) => {
   };
   showContextMenu(e.clientX, e.clientY);
 });
+
+// === コンテキストメニュー ===
 
 function showContextMenu(clientX, clientY) {
   els.contextMenu.style.left = `${clientX}px`;
@@ -1535,6 +1563,8 @@ els.contextMenu.addEventListener('click', (e) => {
     openAiDialogForBubble({ ...contextMenuTargetCoords });
   }
 });
+
+// === レイヤー — 座標変換・ヒットテスト ===
 
 // キャンバス座標(canvasWidth/Height 基準)を含むコマを返す。コマ間の gutter にあたる
 // 隙間に乗っているときは null。
@@ -1649,6 +1679,8 @@ document.addEventListener('keydown', (e) => {
     if (!els.exportBtn.disabled) els.exportBtn.click();
   }
 });
+
+// === レイヤー — 追加(テキスト・ステッカー・オーバーレイ) ===
 
 function addTextLayer({ id: requestedId, x, y, text = 'テキスト', font, size, orientation, lineHeight, kind = 'text' }, targetPage = cur) {
   recordUndo();
@@ -1880,6 +1912,8 @@ async function addPanelOverlayFromFile(file, dropCoords, panelId) {
     panelId,
   });
 }
+
+// === レイヤー — ステッカー/オーバーレイ ハンドラ・スタイル ===
 
 function attachStickerHandlers(layer) {
   const el = layer.el;
@@ -2265,6 +2299,8 @@ function deleteLayer(layer) {
 }
 
 // Ctrl+C/V 用のクリップボード。アプリ内専用(OS クリップボードは経由しない)。
+// === レイヤー — クリップボード(コピー・ペースト) ===
+
 // el は除外し、addXxxLayer に渡せる素のデータだけ保持する。
 // kind は 'text' / 'sticker' / 'overlay' のいずれか(text には monologue サブ種別を含む)。
 let clipboard = null;
@@ -2972,6 +3008,8 @@ async function ensureExportFontsReady() {
   }
 }
 
+// === テキスト描画(Canvas) ===
+
 function splitTextLines(text) {
   return String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 }
@@ -3192,6 +3230,8 @@ function drawTextLayer(ctx, layer) {
   }
 }
 
+// === PNG書き出し・ダウンロード ===
+
 function canvasToPngBlob(canvas) {
   return new Promise((resolve, reject) => {
     canvas.toBlob((pngBlob) => {
@@ -3410,6 +3450,8 @@ function dataUrlToBlob(dataUrl) {
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   return new Blob([arr], { type: mime });
 }
+
+// === バンドル(.mj)保存・読み込み ===
 
 function anyPageHasContent() {
   return state.pages.some((p) => hasPageContent(p));
@@ -3740,6 +3782,8 @@ els.memoText.addEventListener('input', () => {
   cur.memo = els.memoText.value;
   updateActionButtons();
 });
+
+// === メモ ===
 
 function loadMemoFile(file) {
   if ((cur.memo || '').trim() && !confirm(`ページ ${state.currentPageIndex + 1} の現在のメモを上書きします。よろしいですか?`)) return;
@@ -4220,6 +4264,8 @@ els.geminiListModelsBtn.addEventListener('click', async () => {
     console.error(err);
   }
 });
+
+// === ユーティリティ / 一括PNG書き出し ===
 
 // 次フレームまで待ってレイアウトを確定させる(ページ切替後の DOM 計測のため)
 function nextFrame() {
