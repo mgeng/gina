@@ -1031,7 +1031,8 @@ function updatePanelControls() {
   const hasSelection = sel != null;
   els.splitTopBottomBtn.disabled = !hasSelection;
   els.splitLeftRightBtn.disabled = !hasSelection;
-  els.deletePanelBtn.disabled = !canDeletePanel(sel);
+  // 画像がはめ込まれていれば「画像外し」が行えるので、コマ削除不可でもボタンは有効にする。
+  els.deletePanelBtn.disabled = !(sel && (sel.material || canDeletePanel(sel)));
   els.panelMaterialProps.hidden = !(hasSelection && sel.material);
   els.panelFocusProps.hidden = !hasSelection;
   updateFocusControls();
@@ -1083,6 +1084,25 @@ function deleteSelectedPanel() {
   renderPanels();
   updateActionButtons();
   updateCanvasSizeControls();
+}
+
+// コマ選択中の Delete／削除ボタンのエントリポイント。
+// ① 画像(material)がはめ込まれていれば、まず画像だけを外す（コマは残す）
+// ② 画像が無ければコマ自体の削除。誤操作防止に確認ダイアログを挟む。
+function requestDeletePanel() {
+  const panel = getSelectedPanel();
+  if (!panel) return;
+  if (panel.material) {
+    recordUndo();
+    panel.material = null;
+    renderPanels();
+    updateActionButtons();
+    updateInspector();
+    return;
+  }
+  if (!canDeletePanel(panel)) return;
+  if (!confirm('コマを削除しますか？')) return;
+  deleteSelectedPanel();
 }
 
 function splitSelectedPanel(direction) {
@@ -1244,7 +1264,7 @@ els.canvasHeightInput.addEventListener('change', onCanvasSizeChange);
 
 els.splitTopBottomBtn.addEventListener('click', () => splitSelectedPanel('topBottom'));
 els.splitLeftRightBtn.addEventListener('click', () => splitSelectedPanel('leftRight'));
-els.deletePanelBtn.addEventListener('click', () => deleteSelectedPanel());
+els.deletePanelBtn.addEventListener('click', () => requestDeletePanel());
 
 els.materialResetBtn.addEventListener('click', () => {
   const sel = getSelectedPanel();
@@ -2423,10 +2443,8 @@ document.addEventListener('keydown', (e) => {
   // パネル選択中（テキスト/ステッカー未選択）に Delete でコマ削除。
   // selectPanel / selectLayer は排他的なので getSelectedLayer() は null のはず。
   if (e.key === 'Delete' && cur.selectedPanelId != null && !getSelectedLayer()) {
-    if (canDeletePanel(getSelectedPanel())) {
-      e.preventDefault();
-      deleteSelectedPanel();
-    }
+    e.preventDefault();
+    requestDeletePanel();
     return;
   }
 
