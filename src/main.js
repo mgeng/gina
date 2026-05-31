@@ -103,6 +103,7 @@ const els = {
   insertPageBtn: document.getElementById('insertPageBtn'),
   deletePageBtn: document.getElementById('deletePageBtn'),
   contextMenu: document.getElementById('contextMenu'),
+  stickerContextMenu: document.getElementById('stickerContextMenu'),
   themeToggle: document.getElementById('themeToggle'),
   inspectorResizeHandle: document.getElementById('inspectorResizeHandle'),
   aiTunePanelBtn: document.getElementById('aiTunePanelBtn'),
@@ -114,6 +115,7 @@ const els = {
   geminiModelSaveBtn: document.getElementById('geminiModelSaveBtn'),
   geminiListModelsBtn: document.getElementById('geminiListModelsBtn'),
   geminiModelList: document.getElementById('geminiModelList'),
+  aiModelSelect: document.getElementById('aiModelSelect'),
   aiDialog: document.getElementById('aiDialog'),
   aiDialogTitle: document.getElementById('aiDialogTitle'),
   aiDialogCloseBtn: document.getElementById('aiDialogCloseBtn'),
@@ -1471,6 +1473,8 @@ function getImageNaturalSize(dataUrl) {
 
 // クリック位置(ページ座標 = canvasWidth/Height 基準)を覚えておき、メニューの「テキストを追加」で使う
 let contextMenuTargetCoords = { x: 0, y: 0 };
+// 吹き出し専用コンテキストメニューの対象レイヤー
+let contextMenuTargetStickerLayer = null;
 
 // layer-container は pointer-events: none なので、ステージ全体でメニューを受ける。
 // stage は panel-container/layer-container/text-layer すべての親なので、
@@ -1506,6 +1510,22 @@ function showContextMenu(clientX, clientY) {
 
 function hideContextMenu() {
   els.contextMenu.hidden = true;
+}
+
+function showStickerContextMenu(clientX, clientY) {
+  els.stickerContextMenu.style.left = `${clientX}px`;
+  els.stickerContextMenu.style.top = `${clientY}px`;
+  els.stickerContextMenu.hidden = false;
+  const rect = els.stickerContextMenu.getBoundingClientRect();
+  if (rect.right > window.innerWidth)
+    els.stickerContextMenu.style.left = `${Math.max(0, window.innerWidth - rect.width - 4)}px`;
+  if (rect.bottom > window.innerHeight)
+    els.stickerContextMenu.style.top = `${Math.max(0, window.innerHeight - rect.height - 4)}px`;
+}
+
+function hideStickerContextMenu() {
+  els.stickerContextMenu.hidden = true;
+  contextMenuTargetStickerLayer = null;
 }
 
 els.contextMenu.addEventListener('click', (e) => {
@@ -1561,6 +1581,48 @@ els.contextMenu.addEventListener('click', (e) => {
     els.panelOverlayFileInput.click();
   } else if (action === 'add-ai-bubble') {
     openAiDialogForBubble({ ...contextMenuTargetCoords });
+  }
+});
+
+els.stickerContextMenu.addEventListener('click', (e) => {
+  const item = e.target.closest('.context-menu-item');
+  if (!item) return;
+  const action = item.dataset.action;
+  const layer = contextMenuTargetStickerLayer;
+  hideStickerContextMenu();
+  if (!layer) return;
+  if (action === 'sticker-add-text') {
+    const orientation = els.propOrientation.value === 'vertical' ? 'vertical' : 'horizontal';
+    const DEFAULT_TEXT = 'テキスト';
+    const DEFAULT_SIZE = 24;
+    const DEFAULT_LINE_HEIGHT = 1.1;
+    const charCount = [...DEFAULT_TEXT].length;
+    const cx = layer.x + (layer.width || 0) / 2;
+    const cy = layer.y + (layer.height || 0) / 2;
+    let textX, textY;
+    if (orientation === 'vertical') {
+      const textHeight = DEFAULT_SIZE * DEFAULT_LINE_HEIGHT * charCount;
+      textX = cx - DEFAULT_SIZE / 2;
+      textY = cy - textHeight / 2;
+    } else {
+      const textWidth = DEFAULT_SIZE * charCount;
+      const textHeight = DEFAULT_SIZE * DEFAULT_LINE_HEIGHT;
+      textX = cx - textWidth / 2;
+      textY = cy - textHeight / 2;
+    }
+    addTextLayer({ x: textX, y: textY, orientation });
+  } else if (action === 'sticker-move-to-panel') {
+    const cx = layer.x + (layer.width || 0) / 2;
+    const cy = layer.y + (layer.height || 0) / 2;
+    const panel = findPanelAtCanvasCoords(cx, cy);
+    if (!panel) { alert('吹き出しの中心がコマの内側にありません。'); return; }
+    recordUndo();
+    layer.panelId = panel.id;
+    applyStickerStyle(layer);
+  } else if (action === 'sticker-move-to-page') {
+    recordUndo();
+    layer.panelId = null;
+    applyStickerStyle(layer);
   }
 });
 
@@ -1624,14 +1686,15 @@ els.panelOverlayFileInput.addEventListener('change', () => {
 
 // メニュー外のマウスダウンで閉じる(キャプチャ段階で他の stopPropagation より先に拾う)
 document.addEventListener('mousedown', (e) => {
-  if (els.contextMenu.hidden) return;
-  if (els.contextMenu.contains(e.target)) return;
-  hideContextMenu();
+  if (!els.contextMenu.hidden && !els.contextMenu.contains(e.target)) hideContextMenu();
+  if (!els.stickerContextMenu.hidden && !els.stickerContextMenu.contains(e.target)) hideStickerContextMenu();
 }, true);
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !els.contextMenu.hidden) {
     hideContextMenu();
+  } else if (e.key === 'Escape' && !els.stickerContextMenu.hidden) {
+    hideStickerContextMenu();
   } else if (e.key === 'Escape' && !els.aiDialog.hidden) {
     closeAiDialog();
   } else if (e.key === 'Escape' && !els.settingsPanel.hidden) {
@@ -1726,13 +1789,14 @@ function isOverlayLike(layer) {
   return layer && (layer.kind === 'overlay' || layer.kind === 'panelOverlay');
 }
 
-function addStickerLayer({ id: requestedId, x, y, src, width, height, flipH, flipV }, targetPage = cur) {
+function addStickerLayer({ id: requestedId, x, y, src, width, height, flipH, flipV, panelId }, targetPage = cur) {
   recordUndo();
   const id = Number.isFinite(requestedId) ? requestedId : targetPage.nextId++;
   targetPage.nextId = Math.max(targetPage.nextId, id + 1);
   const layer = {
     id,
     kind: 'sticker',
+    panelId: panelId ?? null,
     src,
     x,
     y,
@@ -1977,6 +2041,18 @@ function attachStickerHandlers(layer) {
     layer.y = cy - layer.height / 2;
     applyStickerStyle(layer);
   }, { passive: false });
+
+  // 吹き出しを右クリックしたとき専用のコンテキストメニューを表示
+  if (layer.kind === 'sticker') {
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      selectLayer(layer.id);
+      hideContextMenu();
+      contextMenuTargetStickerLayer = layer;
+      showStickerContextMenu(e.clientX, e.clientY);
+    });
+  }
 }
 
 function applyStickerStyle(layer) {
@@ -1999,7 +2075,7 @@ function applyStickerStyle(layer) {
 // ボックス基準の inset 値(top right bottom left)で指定する。flip による rotate/scale
 // transform 後に clip-path が効くため、flipH/V を考慮して左右・上下の inset を入れ替える。
 function applyPanelOverlayClip(layer) {
-  if (!layer || layer.kind !== 'panelOverlay') return;
+  if (!layer || (layer.kind !== 'panelOverlay' && !(layer.kind === 'sticker' && layer.panelId != null))) return;
   const el = layer.el;
   if (!el) return;
   const panel = cur.panels.find((p) => p.id === layer.panelId);
@@ -3297,6 +3373,7 @@ function buildProjectData(page = cur, overlayFileById = new Map()) {
           height: l.height,
           flipH: !!l.flipH,
           flipV: !!l.flipV,
+          panelId: l.panelId ?? null,
         };
       }
       if (l.kind === 'overlay') {
@@ -3360,6 +3437,7 @@ async function applyProjectData(data, targetPage = cur, overlayEntries = {}) {
         height: typeof l.height === 'number' ? l.height : 0,
         flipH: !!l.flipH,
         flipV: !!l.flipV,
+        panelId: Number(l.panelId) || null,
       }, targetPage);
       continue;
     }
@@ -3935,7 +4013,10 @@ async function renderCurrentPageToPngBlob() {
     if (layer.kind === 'overlay') drawImageLayer(layer, layerImgs[i]);
   });
   cur.layers.forEach((layer, i) => {
-    if (layer.kind === 'sticker') drawImageLayer(layer, layerImgs[i]);
+    if (layer.kind === 'sticker') {
+      if (layer.panelId != null) drawPanelOverlayLayer(layer, layerImgs[i]);
+      else drawImageLayer(layer, layerImgs[i]);
+    }
   });
   cur.layers.forEach((layer) => {
     if (!isStickerLike(layer)) drawTextLayer(ctx, layer);
@@ -4082,6 +4163,29 @@ const aiDialogState = {
   resultDataUrl: null,
 };
 
+function syncAiModelSelect() {
+  const current = getGeminiModel();
+  let found = false;
+  for (const opt of els.aiModelSelect.options) {
+    if (opt.value === current) { opt.selected = true; found = true; break; }
+  }
+  if (!found) {
+    let customOpt = els.aiModelSelect.querySelector('option[data-custom]');
+    if (!customOpt) {
+      customOpt = document.createElement('option');
+      customOpt.dataset.custom = '1';
+      els.aiModelSelect.appendChild(customOpt);
+    }
+    customOpt.value = current;
+    customOpt.textContent = `カスタム: ${current}`;
+    customOpt.selected = true;
+  }
+}
+
+els.aiModelSelect.addEventListener('change', () => {
+  storeGeminiModel(els.aiModelSelect.value);
+});
+
 function resetAiDialogOutput() {
   els.aiPromptInput.value = '';
   els.aiOutputPreview.hidden = true;
@@ -4104,6 +4208,7 @@ function openAiDialogForPanel(panel) {
   els.aiInputPreview.hidden = false;
   els.aiInputImg.src = panel.material.src;
   els.aiPromptInput.placeholder = '例: 夜のシーンにして / もっとダークな雰囲気に / 雨の効果を加えて';
+  syncAiModelSelect();
   resetAiDialogOutput();
   els.aiDialog.hidden = false;
   els.aiPromptInput.focus();
@@ -4118,6 +4223,7 @@ function openAiDialogForBubble(coords) {
   els.aiInputPreview.hidden = true;
   els.aiInputImg.src = '';
   els.aiPromptInput.placeholder = '例: ギザギザした怒りの吹き出し / 丸くてかわいい吹き出し / 大きなテール付き吹き出し';
+  syncAiModelSelect();
   resetAiDialogOutput();
   els.aiDialog.hidden = false;
   els.aiPromptInput.focus();
