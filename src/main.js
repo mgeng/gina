@@ -493,6 +493,7 @@ function snapshotLayer(layer) {
     size: layer.size,
     orientation: layer.orientation,
     lineHeight: layer.lineHeight,
+    parentStickerId: layer.parentStickerId || null,
   };
 }
 
@@ -536,6 +537,7 @@ function restoreCurrentPageSnapshot(snapshot) {
   const data = snapshot.page;
   for (const l of cur.layers) {
     if (isStickerLike(l)) removeStickerHandles(l);
+    if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
     if (l.el) l.el.remove();
   }
   cur.layers = [];
@@ -662,6 +664,11 @@ function refreshPageView() {
   for (const l of cur.layers) {
     if (l.kind === 'sticker') {
       els.layerContainer.insertBefore(l.el, previewCanvas);
+      if (!l.textCanvas) {
+        l.textCanvas = document.createElement('canvas');
+        l.textCanvas.className = 'text-preview-canvas';
+      }
+      els.layerContainer.insertBefore(l.textCanvas, previewCanvas);
     } else if (!isOverlayLike(l)) {
       els.layerContainer.appendChild(l.el);
     }
@@ -1168,6 +1175,7 @@ function switchToPage(index) {
   // いまのページのレイヤー DOM を退避(削除はしない、要素は残す)
   for (const l of cur.layers) {
     if (isStickerLike(l)) removeStickerHandles(l);
+    if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
     l.el.remove();
   }
   state.currentPageIndex = index;
@@ -1189,6 +1197,7 @@ function insertPage() {
   // 現在ページのレイヤー DOM を退避
   for (const l of cur.layers) {
     if (isStickerLike(l)) removeStickerHandles(l);
+    if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
     l.el.remove();
   }
   // 現在ページ以降を1つ後ろへシフト
@@ -1328,7 +1337,10 @@ els.deletePageBtn.addEventListener('click', () => {
   if (isPageEmpty(cur)) return;
   if (!confirm(`ページ ${state.currentPageIndex + 1} のコマ・素材・テキストをすべて消去します。よろしいですか?`)) return;
   recordUndo();
-  for (const l of cur.layers) l.el.remove();
+  for (const l of cur.layers) {
+    if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
+    l.el.remove();
+  }
   state.pages[state.currentPageIndex] = createEmptyPage();
   cur = state.pages[state.currentPageIndex];
   refreshPageView();
@@ -1540,6 +1552,7 @@ els.contextMenu.addEventListener('click', (e) => {
   } else if (action === 'add-bubble') {
     const { x, y } = contextMenuTargetCoords;
     addStickerLayer({ x, y, src: STICKER_DEFAULT_SRC });
+    const newBubbleStickerId = cur.layers[cur.layers.length - 1].id;
     // 吹き出しの中央付近にテキストを同時追加する。文字組みは右側パネルの
     // 直前選択値(propOrientation)に従う。bubble 画像の高さはロード後にしか
     // 確定しないため、既定の縦オーバル(ほぼ正方形)前提で STICKER_DEFAULT_WIDTH
@@ -1565,7 +1578,7 @@ els.contextMenu.addEventListener('click', (e) => {
       textX = bubbleCenterX - textWidth / 2;
       textY = bubbleCenterY - textHeight / 2;
     }
-    addTextLayer({ x: textX, y: textY, orientation });
+    addTextLayer({ x: textX, y: textY, orientation, parentStickerId: newBubbleStickerId });
   } else if (action === 'add-overlay') {
     pendingOverlayCoords = { ...contextMenuTargetCoords };
     els.overlayFileInput.value = '';
@@ -1610,7 +1623,7 @@ els.stickerContextMenu.addEventListener('click', (e) => {
       textX = cx - textWidth / 2;
       textY = cy - textHeight / 2;
     }
-    addTextLayer({ x: textX, y: textY, orientation });
+    addTextLayer({ x: textX, y: textY, orientation, parentStickerId: layer.id });
   } else if (action === 'sticker-move-to-panel') {
     const cx = layer.x + (layer.width || 0) / 2;
     const cy = layer.y + (layer.height || 0) / 2;
@@ -1745,7 +1758,7 @@ document.addEventListener('keydown', (e) => {
 
 // === Layers — Add (Text / Sticker / Overlay) ===
 
-function addTextLayer({ id: requestedId, x, y, text = 'テキスト', font, size, orientation, lineHeight, kind = 'text' }, targetPage = cur) {
+function addTextLayer({ id: requestedId, x, y, text = 'テキスト', font, size, orientation, lineHeight, kind = 'text', parentStickerId = null }, targetPage = cur) {
   recordUndo();
   const id = Number.isFinite(requestedId) ? requestedId : targetPage.nextId++;
   targetPage.nextId = Math.max(targetPage.nextId, id + 1);
@@ -1759,6 +1772,7 @@ function addTextLayer({ id: requestedId, x, y, text = 'テキスト', font, size
     orientation: orientation || 'horizontal',
     lineHeight: lineHeight ?? 1.1,
     kind,
+    parentStickerId: parentStickerId || null,
     el: null,
   };
   const el = document.createElement('div');
@@ -1812,12 +1826,18 @@ function addStickerLayer({ id: requestedId, x, y, src, width, height, flipH, fli
   el.dataset.id = String(id);
   el.src = src;
   layer.el = el;
+  layer.textCanvas = null;
   targetPage.layers.push(layer);
   attachStickerHandlers(layer);
   if (targetPage === cur) {
-    // ステッカーは text-preview-canvas より前(DOM 順で先 = 視覚的に背面)に挿入し、
-    // テキスト(canvas でレンダリング)が常にステッカーの上に出るようにする
+    // ステッカーを previewCanvas の直前に挿入し、続けてこのステッカー専用の
+    // textCanvas を挿入する。DOM順: ... [stickerImg] [stickerTextCanvas] [previewCanvas] ...
+    // これにより「この sticker のテキスト → この sticker の img より上、次 sticker より下」となる。
     els.layerContainer.insertBefore(el, previewCanvas);
+    const textCanvas = document.createElement('canvas');
+    textCanvas.className = 'text-preview-canvas';
+    els.layerContainer.insertBefore(textCanvas, previewCanvas);
+    layer.textCanvas = textCanvas;
     // 自然サイズ未指定なら、画像ロード後にデフォルト幅で初期化する
     const initFromNatural = () => {
       if (!layer.width || !layer.height) {
@@ -2367,6 +2387,10 @@ function isEditableTarget() {
 function deleteLayer(layer) {
   recordUndo();
   if (isStickerLike(layer)) removeStickerHandles(layer);
+  if (layer.kind === 'sticker' && layer.textCanvas) {
+    layer.textCanvas.remove();
+    layer.textCanvas = null;
+  }
   layer.el.remove();
   cur.layers = cur.layers.filter((l) => l.id !== layer.id);
   renderTextPreview();
@@ -2391,23 +2415,40 @@ function serializeTextLayer(layer) {
     orientation: layer.orientation,
     lineHeight: layer.lineHeight,
     kind: layer.kind, // 'text' または 'monologue'
+    parentStickerId: layer.parentStickerId || null,
   };
 }
 
-// 吹き出し(sticker)の矩形内に基準点を持つ text/monologue レイヤーを抽出する。
-// add-bubble は吹き出し中央付近にテキストを置く設計なので、layer.x/y が矩形に
-// 入っているかの簡易判定で実用上の「中身」を拾える(尾の上に偶然乗っているテキストは
-// 巻き込みうるが、許容)。
+// テキストレイヤーが「どの吹き出しに属するか」を一意に解決して sticker.id を返す。
+// どの吹き出しにも属さなければ null。描画(renderTextPreview)とドラッグ追従
+// (findTextChildrenInSticker)の両方でこの関数を使い、判定基準を統一する。
+//   1. parentStickerId が実在の sticker を指していれば、それを優先(明示的な所属)。
+//   2. 無ければ空間判定。複数の吹き出しが重なる場合は「生成順で最初に含む吹き出し」に
+//      割り当てる。これにより、コピーで後から増えた空の吹き出しを元テキストの上に
+//      重ねても、テキストは元(先に生成された)吹き出しに属したままになる。
+function resolveTextOwnerStickerId(textLayer, page = cur) {
+  if (textLayer.kind !== 'text' && textLayer.kind !== 'monologue') return null;
+  if (textLayer.parentStickerId) {
+    const explicit = page.layers.find(
+      (l) => l.kind === 'sticker' && l.id === textLayer.parentStickerId
+    );
+    if (explicit) return explicit.id;
+  }
+  for (const sl of page.layers) {
+    if (sl.kind !== 'sticker' || !sl.width || !sl.height) continue;
+    if (textLayer.x >= sl.x && textLayer.x <= sl.x + sl.width &&
+        textLayer.y >= sl.y && textLayer.y <= sl.y + sl.height) {
+      return sl.id;
+    }
+  }
+  return null;
+}
+
+// 指定 sticker に属する text/monologue レイヤーを抽出する。
+// 所属判定は resolveTextOwnerStickerId に集約(空間判定+明示 parentStickerId)。
 function findTextChildrenInSticker(sticker, page = cur) {
   if (!sticker.width || !sticker.height) return [];
-  const x0 = sticker.x;
-  const y0 = sticker.y;
-  const x1 = sticker.x + sticker.width;
-  const y1 = sticker.y + sticker.height;
-  return page.layers.filter((l) => {
-    if (l.kind !== 'text' && l.kind !== 'monologue') return false;
-    return l.x >= x0 && l.x <= x1 && l.y >= y0 && l.y <= y1;
-  });
+  return page.layers.filter((l) => resolveTextOwnerStickerId(l, page) === sticker.id);
 }
 
 function copySelectedLayer() {
@@ -2499,6 +2540,7 @@ function pasteFromClipboard() {
           orientation: c.orientation,
           lineHeight: c.lineHeight,
           kind: c.kind,
+          parentStickerId: newStickerId,
         });
       }
       // 子テキストの addTextLayer が選択を奪うので、最後に吹き出しを再選択しておく
@@ -3159,23 +3201,49 @@ function measureTextLayerBounds(layer) {
 }
 
 function syncPreviewCanvasSize() {
-  previewCanvas.width = cur.canvasWidth;
-  previewCanvas.height = cur.canvasHeight;
-  previewCanvas.style.width = `${els.layerContainer.clientWidth}px`;
-  previewCanvas.style.height = `${els.layerContainer.clientHeight}px`;
-  return previewCanvas.width > 0 && previewCanvas.height > 0;
+  const w = cur.canvasWidth;
+  const h = cur.canvasHeight;
+  const cssW = `${els.layerContainer.clientWidth}px`;
+  const cssH = `${els.layerContainer.clientHeight}px`;
+  previewCanvas.width = w;
+  previewCanvas.height = h;
+  previewCanvas.style.width = cssW;
+  previewCanvas.style.height = cssH;
+  for (const l of cur.layers) {
+    if (l.kind === 'sticker' && l.textCanvas) {
+      l.textCanvas.width = w;
+      l.textCanvas.height = h;
+      l.textCanvas.style.width = cssW;
+      l.textCanvas.style.height = cssH;
+    }
+  }
+  return w > 0 && h > 0;
 }
 
 function renderTextPreview() {
   if (!syncPreviewCanvasSize()) return;
-  const ctx = previewCanvas.getContext('2d');
-  ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+  const mainCtx = previewCanvas.getContext('2d');
+  mainCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+  // 各 sticker の textCanvas をクリアし、sticker id → ctx のマップを作る
+  const stickerCtxMap = new Map();
+  for (const l of cur.layers) {
+    if (l.kind === 'sticker' && l.textCanvas) {
+      const ctx = l.textCanvas.getContext('2d');
+      ctx.clearRect(0, 0, l.textCanvas.width, l.textCanvas.height);
+      stickerCtxMap.set(l.id, ctx);
+    }
+  }
   cur.layers.forEach((layer) => {
     // 画像系レイヤー(sticker / overlay)は DOM の <img> として直接表示するのでプレビュー canvas には描かない
     if (isStickerLike(layer)) return;
-    if (!layer.el.classList.contains('editing')) {
-      drawTextLayer(ctx, layer);
-    }
+    if (layer.el.classList.contains('editing')) return;
+    // 所属する吹き出しがあればその textCanvas に、なければ main canvas に描く。
+    // 所属判定はドラッグ追従(findTextChildrenInSticker)と同じ resolveTextOwnerStickerId。
+    const ownerId = resolveTextOwnerStickerId(layer);
+    const ctx = (ownerId != null && stickerCtxMap.has(ownerId))
+      ? stickerCtxMap.get(ownerId)
+      : mainCtx;
+    drawTextLayer(ctx, layer);
   });
 }
 
@@ -3423,13 +3491,17 @@ async function applyProjectData(data, targetPage = cur, overlayEntries = {}) {
   const wasRestoringUndo = isRestoringUndo;
   isRestoringUndo = true;
   try {
-    for (const l of targetPage.layers) l.el.remove();
+    for (const l of targetPage.layers) {
+      if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
+      l.el.remove();
+    }
     targetPage.layers = [];
     targetPage.selectedId = null;
     targetPage.nextId = 1;
     for (const l of data.layers) {
     if (l.kind === 'sticker') {
       addStickerLayer({
+        id: Number(l.id) || undefined,
         x: Number(l.x) || 0,
         y: Number(l.y) || 0,
         src: typeof l.src === 'string' ? l.src : STICKER_DEFAULT_SRC,
@@ -3501,6 +3573,7 @@ async function applyProjectData(data, targetPage = cur, overlayEntries = {}) {
       orientation: l.orientation,
       lineHeight: typeof l.lineHeight === 'number' ? l.lineHeight : undefined,
       kind: (l.kind === 'monologue' || l.kind === 'bubble') ? l.kind : 'text',
+      parentStickerId: Number(l.parentStickerId) || null,
     }, targetPage);
   }
     if (targetPage === cur) deselect();
@@ -3648,7 +3721,10 @@ els.saveProjectBtn.addEventListener('click', () => saveProject());
 
 function resetAllPagesForBundle() {
   // 表示中ページの DOM をクリア
-  for (const l of cur.layers) l.el.remove();
+  for (const l of cur.layers) {
+    if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
+    l.el.remove();
+  }
   // 全ページを空に置き換え
   for (let i = 0; i < state.pages.length; i++) {
     state.pages[i] = createEmptyPage();
