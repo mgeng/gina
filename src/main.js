@@ -32,7 +32,7 @@ function registerFonts() {
 
 registerFonts();
 
-// === DOM要素 ===
+// === DOM Elements ===
 
 const els = {
   fileInput: document.getElementById('fileInput'),
@@ -128,7 +128,7 @@ const els = {
   aiCancelBtn: document.getElementById('aiCancelBtn'),
 };
 
-// === テーマ / インスペクタ幅 / UIパネル ===
+// === Theme / Inspector Width / UI Panels ===
 
 const THEME_STORAGE_KEY = 'gina-theme';
 const INSPECTOR_WIDTH_STORAGE_KEY = 'gina-inspector-width';
@@ -254,7 +254,7 @@ function toggleShortcutsPanel() {
   els.shortcutsPanel.hidden = !els.shortcutsPanel.hidden;
 }
 
-// === コマ割り定数・テンプレート ===
+// === Panel Layout Constants & Templates ===
 
 // コマ割りテンプレート。panels は 0-1 の正規化座標（{x,y,w,h}）。
 // 初期状態は 'one'（1コマ全面）。「テンプレなし」は廃止。
@@ -365,7 +365,7 @@ const BUNDLE_EXT = '.mj';
 const BUNDLE_TEXT_NAME = 'text.json';
 const BUNDLE_MEMO_NAME = 'memo.txt';
 
-// === ファイルI/O ===
+// === File I/O ===
 
 function detectFileKind(file) {
   const name = file.name || '';
@@ -411,7 +411,7 @@ function openFiles(files) {
   loadMemoFiles(sortFilesByName(memoFiles));
 }
 
-// === ページ管理・状態 ===
+// === Page Management & State ===
 
 const MAX_PAGES = 16;
 
@@ -596,7 +596,7 @@ function undoLastChange() {
   return true;
 }
 
-// === ページ状態判定・UI更新 ===
+// === Page State / UI Updates ===
 
 // 何か書き出す/保存する価値があるかどうか。コマ割りは常に存在する前提なので、
 // 「素材かテキストが何か置かれているか」で判定する。
@@ -669,7 +669,7 @@ function refreshPageView() {
   updateInspector();
 }
 
-// === コマ(パネル) — ジオメトリ・辺ドラッグ ===
+// === Panels — Geometry & Edge Drag ===
 
 function isCanvasEdge(p, edge) {
   const EPS = 0.001;
@@ -817,7 +817,7 @@ function startEdgeDrag(panel, edge, startEvent) {
   document.addEventListener('mouseup', onUp);
 }
 
-// === コマ(パネル) — 素材(material)・フォーカス ===
+// === Panels — Material & Focus ===
 
 // 素材 img を「コマ全体を覆う cover フィット」を基準に、user の tx/ty/scale/rotation で動かす。
 function applyMaterialTransform(img, panel, panelEl) {
@@ -962,7 +962,7 @@ function startMaterialDrag(panel, panelEl, startEvent) {
   document.addEventListener('mouseup', onUp);
 }
 
-// === コマ(パネル) — レンダリング・選択・操作 ===
+// === Panels — Rendering, Selection & Operations ===
 
 function renderPanels() {
   els.panelContainer.innerHTML = '';
@@ -1213,7 +1213,7 @@ els.templateSelect.addEventListener('change', () => {
   applyTemplate(newTemplate);
 });
 
-// === キャンバスサイズ / ボーダー / ガター ===
+// === Canvas Size / Border / Gutter ===
 
 function applyPanelBorderWidth(px) {
   document.documentElement.style.setProperty('--panel-border-width', `${px}px`);
@@ -1335,7 +1335,7 @@ els.deletePageBtn.addEventListener('click', () => {
 
 updatePageIndicator();
 
-// === フォントUI ===
+// === Font UI ===
 
 function populateFontSelect() {
   els.propFont.innerHTML = '';
@@ -1447,7 +1447,7 @@ els.stageWrapper.addEventListener('drop', (e) => {
   openFile(file);
 });
 
-// === 画像ユーティリティ ===
+// === Image Utilities ===
 
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
@@ -1488,7 +1488,7 @@ els.stage.addEventListener('contextmenu', (e) => {
   showContextMenu(e.clientX, e.clientY);
 });
 
-// === コンテキストメニュー ===
+// === Context Menu ===
 
 function showContextMenu(clientX, clientY) {
   els.contextMenu.style.left = `${clientX}px`;
@@ -1564,7 +1564,7 @@ els.contextMenu.addEventListener('click', (e) => {
   }
 });
 
-// === レイヤー — 座標変換・ヒットテスト ===
+// === Layers — Coordinate Transforms & Hit Testing ===
 
 // キャンバス座標(canvasWidth/Height 基準)を含むコマを返す。コマ間の gutter にあたる
 // 隙間に乗っているときは null。
@@ -1680,7 +1680,7 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-// === レイヤー — 追加(テキスト・ステッカー・オーバーレイ) ===
+// === Layers — Add (Text / Sticker / Overlay) ===
 
 function addTextLayer({ id: requestedId, x, y, text = 'テキスト', font, size, orientation, lineHeight, kind = 'text' }, targetPage = cur) {
   recordUndo();
@@ -1913,7 +1913,7 @@ async function addPanelOverlayFromFile(file, dropCoords, panelId) {
   });
 }
 
-// === レイヤー — ステッカー/オーバーレイ ハンドラ・スタイル ===
+// === Layers — Sticker/Overlay Handlers & Styles ===
 
 function attachStickerHandlers(layer) {
   const el = layer.el;
@@ -2299,7 +2299,7 @@ function deleteLayer(layer) {
 }
 
 // Ctrl+C/V 用のクリップボード。アプリ内専用(OS クリップボードは経由しない)。
-// === レイヤー — クリップボード(コピー・ペースト) ===
+// === Layers — Clipboard (Copy & Paste) ===
 
 // el は除外し、addXxxLayer に渡せる素のデータだけ保持する。
 // kind は 'text' / 'sticker' / 'overlay' のいずれか(text には monologue サブ種別を含む)。
@@ -3008,7 +3008,7 @@ async function ensureExportFontsReady() {
   }
 }
 
-// === テキスト描画(Canvas) ===
+// === Text Rendering (Canvas) ===
 
 function splitTextLines(text) {
   return String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
@@ -3230,7 +3230,7 @@ function drawTextLayer(ctx, layer) {
   }
 }
 
-// === PNG書き出し・ダウンロード ===
+// === PNG Export & Download ===
 
 function canvasToPngBlob(canvas) {
   return new Promise((resolve, reject) => {
@@ -3451,7 +3451,7 @@ function dataUrlToBlob(dataUrl) {
   return new Blob([arr], { type: mime });
 }
 
-// === バンドル(.mj)保存・読み込み ===
+// === Bundle (.mj) Save & Load ===
 
 function anyPageHasContent() {
   return state.pages.some((p) => hasPageContent(p));
@@ -3783,7 +3783,7 @@ els.memoText.addEventListener('input', () => {
   updateActionButtons();
 });
 
-// === メモ ===
+// === Memo ===
 
 function loadMemoFile(file) {
   if ((cur.memo || '').trim() && !confirm(`ページ ${state.currentPageIndex + 1} の現在のメモを上書きします。よろしいですか?`)) return;
@@ -4265,7 +4265,7 @@ els.geminiListModelsBtn.addEventListener('click', async () => {
   }
 });
 
-// === ユーティリティ / 一括PNG書き出し ===
+// === Utilities / Batch PNG Export ===
 
 // 次フレームまで待ってレイアウトを確定させる(ページ切替後の DOM 計測のため)
 function nextFrame() {
