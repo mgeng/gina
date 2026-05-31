@@ -661,15 +661,25 @@ function refreshPageView() {
       els.layerContainer.insertBefore(l.el, previewCanvas);
     }
   }
+  // sticker は「全画像 → 全 textCanvas」の 2 パスで積む。こうすると、どの吹き出しの
+  // テキストも、あとから重ねた別の吹き出し画像より前面に来るため、テキストが吹き出しの
+  // 下に隠れない(PNG 書き出しの描画順とも一致する)。
   for (const l of cur.layers) {
     if (l.kind === 'sticker') {
       els.layerContainer.insertBefore(l.el, previewCanvas);
+    }
+  }
+  for (const l of cur.layers) {
+    if (l.kind === 'sticker') {
       if (!l.textCanvas) {
         l.textCanvas = document.createElement('canvas');
         l.textCanvas.className = 'text-preview-canvas';
       }
       els.layerContainer.insertBefore(l.textCanvas, previewCanvas);
-    } else if (!isOverlayLike(l)) {
+    }
+  }
+  for (const l of cur.layers) {
+    if (l.kind !== 'sticker' && !isOverlayLike(l)) {
       els.layerContainer.appendChild(l.el);
     }
   }
@@ -1830,10 +1840,12 @@ function addStickerLayer({ id: requestedId, x, y, src, width, height, flipH, fli
   targetPage.layers.push(layer);
   attachStickerHandlers(layer);
   if (targetPage === cur) {
-    // ステッカーを previewCanvas の直前に挿入し、続けてこのステッカー専用の
-    // textCanvas を挿入する。DOM順: ... [stickerImg] [stickerTextCanvas] [previewCanvas] ...
-    // これにより「この sticker のテキスト → この sticker の img より上、次 sticker より下」となる。
-    els.layerContainer.insertBefore(el, previewCanvas);
+    // DOM順は「全 sticker 画像 → 全 sticker textCanvas → previewCanvas」に保つ。
+    // 新しい画像は既存の textCanvas 群より前(背面)へ、新しい textCanvas は
+    // previewCanvas の直前(textCanvas 群の最前面)へ挿入する。こうすると、どの
+    // 吹き出しのテキストもどの吹き出し画像より前面になり、テキストが隠れない。
+    const anchorSticker = cur.layers.find((l) => l.kind === 'sticker' && l.textCanvas);
+    els.layerContainer.insertBefore(el, anchorSticker ? anchorSticker.textCanvas : previewCanvas);
     const textCanvas = document.createElement('canvas');
     textCanvas.className = 'text-preview-canvas';
     els.layerContainer.insertBefore(textCanvas, previewCanvas);
