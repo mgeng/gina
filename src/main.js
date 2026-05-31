@@ -2117,10 +2117,14 @@ function applyPanelOverlayClip(layer) {
   const gutterCss = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--panel-gutter')) || 0;
   const gutterCanvas = displayScale > 0 ? gutterCss / displayScale : 0;
   const half = gutterCanvas / 2;
-  const panelLeft = panel.x * w + half;
-  const panelTop = panel.y * h + half;
-  const panelRight = (panel.x + panel.w) * w - half;
-  const panelBottom = (panel.y + panel.h) * h - half;
+  // 枠線は border-box でコマの内側に描かれるため、その分だけ内側にクリップして
+  // 吹き出し/オーバーレイがコマの枠線を塗りつぶさないようにする。
+  const borderCss = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--panel-border-width')) || 0;
+  const borderCanvas = displayScale > 0 ? borderCss / displayScale : 0;
+  const panelLeft = panel.x * w + half + borderCanvas;
+  const panelTop = panel.y * h + half + borderCanvas;
+  const panelRight = (panel.x + panel.w) * w - half - borderCanvas;
+  const panelBottom = (panel.y + panel.h) * h - half - borderCanvas;
   // 画像のレイヤー座標における各辺のはみ出し量。負(panel が外側)は 0 にクランプ。
   let topIn = Math.max(0, panelTop - layer.y);
   let leftIn = Math.max(0, panelLeft - layer.x);
@@ -4052,6 +4056,10 @@ async function renderCurrentPageToPngBlob() {
   const exportScale = pageW / previewW;
   const gutterCss = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--panel-gutter')) || 0;
   const exportGutterPx = gutterCss * exportScale;
+  // 枠線は border-box でコマの内側に描かれるため、その分だけ内側にクリップして
+  // 吹き出し/オーバーレイがコマの枠線を塗りつぶさないようにする(プレビューと一致)。
+  const borderCss = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--panel-border-width')) || 0;
+  const exportBorderPx = borderCss * exportScale;
   const drawImageLayer = (layer, img) => {
     if (!img || !(layer.width > 0 && layer.height > 0)) return;
     if (layer.flipH || layer.flipV) {
@@ -4074,9 +4082,11 @@ async function renderCurrentPageToPngBlob() {
     if (!panel) return;
     const rect = computePanelPixelRect(panel, pageW, pageH, exportGutterPx);
     if (rect.w <= 0 || rect.h <= 0) return;
+    const bx = Math.min(exportBorderPx, rect.w / 2);
+    const by = Math.min(exportBorderPx, rect.h / 2);
     ctx.save();
     ctx.beginPath();
-    ctx.rect(rect.x, rect.y, rect.w, rect.h);
+    ctx.rect(rect.x + bx, rect.y + by, rect.w - bx * 2, rect.h - by * 2);
     ctx.clip();
     drawImageLayer(layer, img);
     ctx.restore();
