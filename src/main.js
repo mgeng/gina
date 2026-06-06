@@ -32,6 +32,8 @@ function registerFonts() {
 
 registerFonts();
 
+// === DOM Elements ===
+
 const els = {
   fileInput: document.getElementById('fileInput'),
   openBtn: document.getElementById('openBtn'),
@@ -53,6 +55,9 @@ const els = {
   splitLeftRightBtn: document.getElementById('splitLeftRightBtn'),
   deletePanelBtn: document.getElementById('deletePanelBtn'),
   panelMaterialProps: document.getElementById('panelMaterialProps'),
+  materialList: document.getElementById('materialList'),
+  materialAddBtn: document.getElementById('materialAddBtn'),
+  materialAddFileInput: document.getElementById('materialAddFileInput'),
   materialResetBtn: document.getElementById('materialResetBtn'),
   materialRemoveBtn: document.getElementById('materialRemoveBtn'),
   panelFocusProps: document.getElementById('panelFocusProps'),
@@ -89,6 +94,9 @@ const els = {
   helpToggle: document.getElementById('helpToggle'),
   helpPanel: document.getElementById('helpPanel'),
   helpClose: document.getElementById('helpClose'),
+  settingsToggle: document.getElementById('settingsToggle'),
+  settingsPanel: document.getElementById('settingsPanel'),
+  settingsClose: document.getElementById('settingsClose'),
   shortcutsPanel: document.getElementById('shortcutsPanel'),
   shortcutsClose: document.getElementById('shortcutsClose'),
   saveProjectBtn: document.getElementById('saveProjectBtn'),
@@ -98,12 +106,40 @@ const els = {
   insertPageBtn: document.getElementById('insertPageBtn'),
   deletePageBtn: document.getElementById('deletePageBtn'),
   contextMenu: document.getElementById('contextMenu'),
+  stickerContextMenu: document.getElementById('stickerContextMenu'),
   themeToggle: document.getElementById('themeToggle'),
   inspectorResizeHandle: document.getElementById('inspectorResizeHandle'),
+  aiTunePanelBtn: document.getElementById('aiTunePanelBtn'),
+  geminiApiKeyInput: document.getElementById('geminiApiKeyInput'),
+  geminiApiKeyToggle: document.getElementById('geminiApiKeyToggle'),
+  geminiApiKeySaveBtn: document.getElementById('geminiApiKeySaveBtn'),
+  geminiApiKeySavedMsg: document.getElementById('geminiApiKeySavedMsg'),
+  geminiModelInput: document.getElementById('geminiModelInput'),
+  geminiModelSaveBtn: document.getElementById('geminiModelSaveBtn'),
+  geminiListModelsBtn: document.getElementById('geminiListModelsBtn'),
+  geminiModelList: document.getElementById('geminiModelList'),
+  aiModelSelect: document.getElementById('aiModelSelect'),
+  aiDialog: document.getElementById('aiDialog'),
+  aiDialogTitle: document.getElementById('aiDialogTitle'),
+  aiDialogCloseBtn: document.getElementById('aiDialogCloseBtn'),
+  aiInputPreview: document.getElementById('aiInputPreview'),
+  aiInputImg: document.getElementById('aiInputImg'),
+  aiPromptInput: document.getElementById('aiPromptInput'),
+  aiGenerateBtn: document.getElementById('aiGenerateBtn'),
+  aiStatus: document.getElementById('aiStatus'),
+  aiOutputPreview: document.getElementById('aiOutputPreview'),
+  aiResultImg: document.getElementById('aiResultImg'),
+  aiApplyBtn: document.getElementById('aiApplyBtn'),
+  aiCancelBtn: document.getElementById('aiCancelBtn'),
 };
+
+// === Theme / Inspector Width / UI Panels ===
 
 const THEME_STORAGE_KEY = 'gina-theme';
 const INSPECTOR_WIDTH_STORAGE_KEY = 'gina-inspector-width';
+const GEMINI_API_KEY_STORAGE_KEY = 'gina-gemini-api-key';
+const GEMINI_MODEL_STORAGE_KEY = 'gina-gemini-model';
+const GEMINI_DEFAULT_MODEL = 'gemini-2.5-flash-image-preview';
 const INSPECTOR_MIN_WIDTH = 240;
 const INSPECTOR_MAX_WIDTH = 640;
 const STAGE_MIN_WIDTH = 360;
@@ -223,6 +259,8 @@ function toggleShortcutsPanel() {
   els.shortcutsPanel.hidden = !els.shortcutsPanel.hidden;
 }
 
+// === Panel Layout Constants & Templates ===
+
 // コマ割りテンプレート。panels は 0-1 の正規化座標（{x,y,w,h}）。
 // 初期状態は 'one'（1コマ全面）。「テンプレなし」は廃止。
 const DEFAULT_TEMPLATE = 'one';
@@ -332,6 +370,8 @@ const BUNDLE_EXT = '.mj';
 const BUNDLE_TEXT_NAME = 'text.json';
 const BUNDLE_MEMO_NAME = 'memo.txt';
 
+// === File I/O ===
+
 function detectFileKind(file) {
   const name = file.name || '';
   const type = file.type || '';
@@ -376,6 +416,8 @@ function openFiles(files) {
   loadMemoFiles(sortFilesByName(memoFiles));
 }
 
+// === Page Management & State ===
+
 const MAX_PAGES = 16;
 
 function createEmptyPage() {
@@ -385,7 +427,7 @@ function createEmptyPage() {
     nextId: 1,
     memo: '',
     template: DEFAULT_TEMPLATE,
-    panels: [], // { id, x, y, w, h, material, focus } 0-1 正規化
+    panels: [], // { id, x, y, w, h, materials, activeMaterialIdx, focus } 0-1 正規化
     nextPanelId: 1,
     selectedPanelId: null,
     canvasWidth: DEFAULT_CANVAS_WIDTH,
@@ -395,7 +437,8 @@ function createEmptyPage() {
   page.panels = TEMPLATES[DEFAULT_TEMPLATE].panels.map((p) => ({
     id: page.nextPanelId++,
     x: p.x, y: p.y, w: p.w, h: p.h,
-    material: null,
+    materials: [],
+    activeMaterialIdx: 0,
     focus: null,
   }));
   return page;
@@ -416,6 +459,8 @@ function updateDocumentTitle() {
 }
 
 let cur = state.pages[0];
+
+// === Undo ===
 
 const UNDO_LIMIT = 5;
 const undoStack = [];
@@ -452,6 +497,7 @@ function snapshotLayer(layer) {
     size: layer.size,
     orientation: layer.orientation,
     lineHeight: layer.lineHeight,
+    parentStickerId: layer.parentStickerId || null,
   };
 }
 
@@ -470,7 +516,8 @@ function snapshotPage(page = cur) {
         y: p.y,
         w: p.w,
         h: p.h,
-        material: clonePlain(p.material),
+        materials: clonePlain(p.materials || []),
+        activeMaterialIdx: p.activeMaterialIdx || 0,
         focus: clonePlain(p.focus),
       })),
       nextPanelId: page.nextPanelId,
@@ -495,6 +542,7 @@ function restoreCurrentPageSnapshot(snapshot) {
   const data = snapshot.page;
   for (const l of cur.layers) {
     if (isStickerLike(l)) removeStickerHandles(l);
+    if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
     if (l.el) l.el.remove();
   }
   cur.layers = [];
@@ -508,7 +556,8 @@ function restoreCurrentPageSnapshot(snapshot) {
     y: p.y,
     w: p.w,
     h: p.h,
-    material: clonePlain(p.material),
+    materials: clonePlain(p.materials || []),
+    activeMaterialIdx: p.activeMaterialIdx || 0,
     focus: clonePlain(p.focus),
   }));
   cur.nextPanelId = data.nextPanelId || 1;
@@ -557,10 +606,12 @@ function undoLastChange() {
   return true;
 }
 
+// === Page State / UI Updates ===
+
 // 何か書き出す/保存する価値があるかどうか。コマ割りは常に存在する前提なので、
 // 「素材かテキストが何か置かれているか」で判定する。
 function hasPageVisualContent(page) {
-  return page.panels.some((p) => p.material || p.focus) || page.layers.length > 0;
+  return page.panels.some((p) => (p.materials && p.materials.length > 0) || p.focus) || page.layers.length > 0;
 }
 
 function hasPageContent(page) {
@@ -616,10 +667,25 @@ function refreshPageView() {
       els.layerContainer.insertBefore(l.el, previewCanvas);
     }
   }
+  // sticker は「全画像 → 全 textCanvas」の 2 パスで積む。こうすると、どの吹き出しの
+  // テキストも、あとから重ねた別の吹き出し画像より前面に来るため、テキストが吹き出しの
+  // 下に隠れない(PNG 書き出しの描画順とも一致する)。
   for (const l of cur.layers) {
     if (l.kind === 'sticker') {
       els.layerContainer.insertBefore(l.el, previewCanvas);
-    } else if (!isOverlayLike(l)) {
+    }
+  }
+  for (const l of cur.layers) {
+    if (l.kind === 'sticker') {
+      if (!l.textCanvas) {
+        l.textCanvas = document.createElement('canvas');
+        l.textCanvas.className = 'text-preview-canvas';
+      }
+      els.layerContainer.insertBefore(l.textCanvas, previewCanvas);
+    }
+  }
+  for (const l of cur.layers) {
+    if (l.kind !== 'sticker' && !isOverlayLike(l)) {
       els.layerContainer.appendChild(l.el);
     }
   }
@@ -627,6 +693,8 @@ function refreshPageView() {
   syncStickerHandles();
   updateInspector();
 }
+
+// === Panels — Geometry & Edge Drag ===
 
 function isCanvasEdge(p, edge) {
   const EPS = 0.001;
@@ -754,8 +822,10 @@ function startEdgeDrag(panel, edge, startEvent) {
       const el = els.panelContainer.querySelector(`[data-panel-id="${s.panel.id}"]`);
       if (el) {
         applyPanelLayoutStyle(el, s.panel);
-        const img = el.querySelector('.panel-material');
-        if (img) applyMaterialTransform(img, s.panel, el);
+        (s.panel.materials || []).forEach((_, midx) => {
+          const img = el.querySelector(`.panel-material[data-mat-idx="${midx}"]`);
+          if (img) applyMaterialTransform(img, s.panel, el, midx);
+        });
         const fimg = el.querySelector('.panel-focus');
         if (fimg) applyFocusTransform(fimg, s.panel, el);
       }
@@ -774,9 +844,12 @@ function startEdgeDrag(panel, edge, startEvent) {
   document.addEventListener('mouseup', onUp);
 }
 
+// === Panels — Material & Focus ===
+
 // 素材 img を「コマ全体を覆う cover フィット」を基準に、user の tx/ty/scale/rotation で動かす。
-function applyMaterialTransform(img, panel, panelEl) {
-  const m = panel.material;
+function applyMaterialTransform(img, panel, panelEl, matIdx) {
+  const idx = matIdx ?? (panel.activeMaterialIdx || 0);
+  const m = panel.materials && panel.materials[idx];
   if (!m) return;
   const pw = panelEl.clientWidth;
   const ph = panelEl.clientHeight;
@@ -794,17 +867,19 @@ function applyMaterialTransform(img, panel, panelEl) {
 }
 
 function mountMaterialOnPanel(panelEl, panel) {
-  if (!panel.material) return;
-  const img = document.createElement('img');
-  img.className = 'panel-material';
-  img.src = panel.material.src;
-  img.draggable = false;
+  const mats = panel.materials || [];
+  if (mats.length === 0) return;
   panelEl.classList.add('has-material');
-  panelEl.appendChild(img);
-  // 画像 onload 後の natural size とコマレイアウトの両方が揃ってから transform 反映
-  applyMaterialTransform(img, panel, panelEl);
-  // 初回レンダ時にコマがまだ 0 サイズだったケースに備えて次フレームで再適用
-  requestAnimationFrame(() => applyMaterialTransform(img, panel, panelEl));
+  mats.forEach((mat, idx) => {
+    const img = document.createElement('img');
+    img.className = 'panel-material';
+    img.dataset.matIdx = String(idx);
+    img.src = mat.src;
+    img.draggable = false;
+    panelEl.appendChild(img);
+    applyMaterialTransform(img, panel, panelEl, idx);
+    requestAnimationFrame(() => applyMaterialTransform(img, panel, panelEl, idx));
+  });
 }
 
 // 集中線 img を「コマ全体を contain(コマに収まる最小スケール) フィット」を基準に、
@@ -876,37 +951,41 @@ async function loadImageAsPanelMaterial(panel, blob) {
   const dataUrl = await blobToDataUrl(blob);
   const sz = await getImageNaturalSize(dataUrl);
   recordUndo();
-  panel.material = {
+  if (!panel.materials) panel.materials = [];
+  panel.materials.push({
     src: dataUrl,
     naturalWidth: sz.width,
     naturalHeight: sz.height,
     tx: 0, ty: 0,
     scale: 1,
     rotation: 0,
-  };
-  // 素材の img を panel DOM にマウントするため、ここは renderPanels で再描画する
-  // （selectPanel は class toggle のみで DOM 再生成しないため）
+  });
+  panel.activeMaterialIdx = panel.materials.length - 1;
   cur.selectedPanelId = panel.id;
   renderPanels();
+  updateMaterialList();
   updateActionButtons();
 }
 
 function startMaterialDrag(panel, panelEl, startEvent) {
   startEvent.preventDefault();
   startEvent.stopPropagation();
+  const idx = panel.activeMaterialIdx || 0;
+  const mat = panel.materials && panel.materials[idx];
+  if (!mat) return;
   recordUndo();
   const startX = startEvent.clientX;
   const startY = startEvent.clientY;
   const pw = panelEl.clientWidth;
   const ph = panelEl.clientHeight;
-  const origTx = panel.material.tx || 0;
-  const origTy = panel.material.ty || 0;
-  const img = panelEl.querySelector('.panel-material');
+  const origTx = mat.tx || 0;
+  const origTy = mat.ty || 0;
+  const img = panelEl.querySelector(`.panel-material[data-mat-idx="${idx}"]`);
   document.body.style.cursor = 'grabbing';
   const onMove = (ev) => {
-    panel.material.tx = origTx + (ev.clientX - startX) / pw;
-    panel.material.ty = origTy + (ev.clientY - startY) / ph;
-    if (img) applyMaterialTransform(img, panel, panelEl);
+    mat.tx = origTx + (ev.clientX - startX) / pw;
+    mat.ty = origTy + (ev.clientY - startY) / ph;
+    if (img) applyMaterialTransform(img, panel, panelEl, idx);
   };
   const onUp = () => {
     document.body.style.cursor = '';
@@ -916,6 +995,8 @@ function startMaterialDrag(panel, panelEl, startEvent) {
   document.addEventListener('mousemove', onMove);
   document.addEventListener('mouseup', onUp);
 }
+
+// === Panels — Rendering, Selection & Operations ===
 
 function renderPanels() {
   els.panelContainer.innerHTML = '';
@@ -940,7 +1021,7 @@ function renderPanels() {
       const hit = getEdgeFromPoint(el, p, e.clientX, e.clientY);
       if (hit && !hit.resizable) el.style.cursor = 'not-allowed';
       else if (hit) el.style.cursor = cursorForEdge(hit.edge);
-      else if (p.material) el.style.cursor = 'grab';
+      else if (p.materials && p.materials.length > 0) el.style.cursor = 'grab';
       else el.style.cursor = 'pointer';
     });
     el.addEventListener('mouseleave', () => { el.style.cursor = ''; });
@@ -950,25 +1031,27 @@ function renderPanels() {
       const hit = getEdgeFromPoint(el, p, e.clientX, e.clientY);
       if (hit && hit.resizable) {
         startEdgeDrag(p, hit.edge, e);
-      } else if (p.material) {
+      } else if (p.materials && p.materials.length > 0) {
         startMaterialDrag(p, el, e);
       }
     });
     // ホイールで拡縮、Shift+ホイールで回転
     el.addEventListener('wheel', (e) => {
       if (p.id !== cur.selectedPanelId) return;
-      if (!p.material) return;
+      const idx = p.activeMaterialIdx || 0;
+      const mat = p.materials && p.materials[idx];
+      if (!mat) return;
       e.preventDefault();
       recordUndo();
-      const img = el.querySelector('.panel-material');
+      const img = el.querySelector(`.panel-material[data-mat-idx="${idx}"]`);
       if (e.shiftKey) {
         const step = e.deltaY < 0 ? -5 : 5;
-        p.material.rotation = ((p.material.rotation || 0) + step) % 360;
+        mat.rotation = ((mat.rotation || 0) + step) % 360;
       } else {
         const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-        p.material.scale = Math.max(0.1, Math.min(10, (p.material.scale || 1) * factor));
+        mat.scale = Math.max(0.1, Math.min(10, (mat.scale || 1) * factor));
       }
-      if (img) applyMaterialTransform(img, p, el);
+      if (img) applyMaterialTransform(img, p, el, idx);
     }, { passive: false });
     els.panelContainer.appendChild(el);
     mountMaterialOnPanel(el, p);
@@ -1004,10 +1087,37 @@ function updatePanelControls() {
   const hasSelection = sel != null;
   els.splitTopBottomBtn.disabled = !hasSelection;
   els.splitLeftRightBtn.disabled = !hasSelection;
-  els.deletePanelBtn.disabled = !canDeletePanel(sel);
-  els.panelMaterialProps.hidden = !(hasSelection && sel.material);
+  const hasMaterial = sel && sel.materials && sel.materials.length > 0;
+  // 画像がはめ込まれていれば「画像外し」が行えるので、コマ削除不可でもボタンは有効にする。
+  els.deletePanelBtn.disabled = !(sel && (hasMaterial || canDeletePanel(sel)));
+  els.panelMaterialProps.hidden = !hasSelection;
   els.panelFocusProps.hidden = !hasSelection;
+  updateMaterialList();
   updateFocusControls();
+}
+
+function updateMaterialList() {
+  const sel = getSelectedPanel();
+  if (!sel || !els.materialList) return;
+  els.materialList.innerHTML = '';
+  const mats = sel.materials || [];
+  mats.forEach((mat, idx) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'material-thumb';
+    if (idx === (sel.activeMaterialIdx || 0)) thumb.classList.add('active');
+    const img = document.createElement('img');
+    img.src = mat.src;
+    img.draggable = false;
+    thumb.appendChild(img);
+    thumb.addEventListener('click', () => {
+      sel.activeMaterialIdx = idx;
+      updateMaterialList();
+    });
+    els.materialList.appendChild(thumb);
+  });
+  // ボタンの有効/無効
+  if (els.materialResetBtn) els.materialResetBtn.disabled = mats.length === 0;
+  if (els.materialRemoveBtn) els.materialRemoveBtn.disabled = mats.length === 0;
 }
 
 function getSelectedPanel() {
@@ -1058,6 +1168,27 @@ function deleteSelectedPanel() {
   updateCanvasSizeControls();
 }
 
+// コマ選択中の Delete／削除ボタンのエントリポイント。
+// ① 画像(material)がはめ込まれていれば、まず画像だけを外す（コマは残す）
+// ② 画像が無ければコマ自体の削除。誤操作防止に確認ダイアログを挟む。
+function requestDeletePanel() {
+  const panel = getSelectedPanel();
+  if (!panel) return;
+  if (panel.materials && panel.materials.length > 0) {
+    recordUndo();
+    const idx = panel.activeMaterialIdx || 0;
+    panel.materials.splice(idx, 1);
+    panel.activeMaterialIdx = Math.max(0, Math.min(idx, panel.materials.length - 1));
+    renderPanels();
+    updateMaterialList();
+    updateActionButtons();
+    return;
+  }
+  if (!canDeletePanel(panel)) return;
+  if (!confirm('コマを削除しますか？')) return;
+  deleteSelectedPanel();
+}
+
 function splitSelectedPanel(direction) {
   const panel = getSelectedPanel();
   if (!panel) return;
@@ -1066,11 +1197,11 @@ function splitSelectedPanel(direction) {
   // 素材は元コマ（先頭側）にだけ引き継ぐ。もう一方は空のコマになる。
   let a, b;
   if (direction === 'topBottom') {
-    a = { id: cur.nextPanelId++, x: panel.x, y: panel.y,             w: panel.w, h: panel.h / 2, material: panel.material, focus: panel.focus };
-    b = { id: cur.nextPanelId++, x: panel.x, y: panel.y + panel.h / 2, w: panel.w, h: panel.h / 2, material: null, focus: null };
+    a = { id: cur.nextPanelId++, x: panel.x, y: panel.y,             w: panel.w, h: panel.h / 2, materials: clonePlain(panel.materials || []), activeMaterialIdx: panel.activeMaterialIdx || 0, focus: panel.focus };
+    b = { id: cur.nextPanelId++, x: panel.x, y: panel.y + panel.h / 2, w: panel.w, h: panel.h / 2, materials: [], activeMaterialIdx: 0, focus: null };
   } else {
-    a = { id: cur.nextPanelId++, x: panel.x,             y: panel.y, w: panel.w / 2, h: panel.h, material: panel.material, focus: panel.focus };
-    b = { id: cur.nextPanelId++, x: panel.x + panel.w / 2, y: panel.y, w: panel.w / 2, h: panel.h, material: null, focus: null };
+    a = { id: cur.nextPanelId++, x: panel.x,             y: panel.y, w: panel.w / 2, h: panel.h, materials: clonePlain(panel.materials || []), activeMaterialIdx: panel.activeMaterialIdx || 0, focus: panel.focus };
+    b = { id: cur.nextPanelId++, x: panel.x + panel.w / 2, y: panel.y, w: panel.w / 2, h: panel.h, materials: [], activeMaterialIdx: 0, focus: null };
   }
   cur.panels.splice(idx, 1, a, b);
   cur.selectedPanelId = a.id;
@@ -1086,7 +1217,8 @@ function applyTemplate(templateId) {
   cur.panels = tmpl.panels.map((p) => ({
     id: cur.nextPanelId++,
     x: p.x, y: p.y, w: p.w, h: p.h,
-    material: null,
+    materials: [],
+    activeMaterialIdx: 0,
     focus: null,
   }));
   cur.selectedPanelId = null;
@@ -1099,6 +1231,7 @@ function switchToPage(index) {
   // いまのページのレイヤー DOM を退避(削除はしない、要素は残す)
   for (const l of cur.layers) {
     if (isStickerLike(l)) removeStickerHandles(l);
+    if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
     l.el.remove();
   }
   state.currentPageIndex = index;
@@ -1120,6 +1253,7 @@ function insertPage() {
   // 現在ページのレイヤー DOM を退避
   for (const l of cur.layers) {
     if (isStickerLike(l)) removeStickerHandles(l);
+    if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
     l.el.remove();
   }
   // 現在ページ以降を1つ後ろへシフト
@@ -1137,7 +1271,7 @@ els.insertPageBtn.addEventListener('click', insertPage);
 
 els.templateSelect.addEventListener('change', () => {
   const newTemplate = els.templateSelect.value;
-  if (newTemplate !== cur.template && cur.panels.some((p) => p.material)) {
+  if (newTemplate !== cur.template && cur.panels.some((p) => p.materials && p.materials.length > 0)) {
     if (!confirm('テンプレートを変更すると、各コマに配置した画像はすべて消えます。よろしいですか?')) {
       els.templateSelect.value = cur.template;
       return;
@@ -1145,6 +1279,8 @@ els.templateSelect.addEventListener('change', () => {
   }
   applyTemplate(newTemplate);
 });
+
+// === Canvas Size / Border / Gutter ===
 
 function applyPanelBorderWidth(px) {
   document.documentElement.style.setProperty('--panel-border-width', `${px}px`);
@@ -1184,8 +1320,10 @@ function applyCanvasSize(w, h) {
   for (const p of cur.panels) {
     const el = els.panelContainer.querySelector(`[data-panel-id="${p.id}"]`);
     if (!el) continue;
-    const img = el.querySelector('.panel-material');
-    if (img) applyMaterialTransform(img, p, el);
+    (p.materials || []).forEach((_, idx) => {
+      const img = el.querySelector(`.panel-material[data-mat-idx="${idx}"]`);
+      if (img) applyMaterialTransform(img, p, el, idx);
+    });
     const fimg = el.querySelector('.panel-focus');
     if (fimg) applyFocusTransform(fimg, p, el);
   }
@@ -1217,28 +1355,57 @@ els.canvasHeightInput.addEventListener('change', onCanvasSizeChange);
 
 els.splitTopBottomBtn.addEventListener('click', () => splitSelectedPanel('topBottom'));
 els.splitLeftRightBtn.addEventListener('click', () => splitSelectedPanel('leftRight'));
-els.deletePanelBtn.addEventListener('click', () => deleteSelectedPanel());
+els.deletePanelBtn.addEventListener('click', () => requestDeletePanel());
 
 els.materialResetBtn.addEventListener('click', () => {
   const sel = getSelectedPanel();
-  if (!sel || !sel.material) return;
+  if (!sel || !sel.materials || sel.materials.length === 0) return;
+  const idx = sel.activeMaterialIdx || 0;
+  const mat = sel.materials[idx];
+  if (!mat) return;
   recordUndo();
-  sel.material.tx = 0;
-  sel.material.ty = 0;
-  sel.material.scale = 1;
-  sel.material.rotation = 0;
+  mat.tx = 0;
+  mat.ty = 0;
+  mat.scale = 1;
+  mat.rotation = 0;
   const el = els.panelContainer.querySelector(`[data-panel-id="${sel.id}"]`);
-  const img = el && el.querySelector('.panel-material');
-  if (img) applyMaterialTransform(img, sel, el);
+  const img = el && el.querySelector(`.panel-material[data-mat-idx="${idx}"]`);
+  if (img) applyMaterialTransform(img, sel, el, idx);
 });
 
 els.materialRemoveBtn.addEventListener('click', () => {
   const sel = getSelectedPanel();
-  if (!sel || !sel.material) return;
+  if (!sel || !sel.materials || sel.materials.length === 0) return;
   recordUndo();
-  sel.material = null;
+  const idx = sel.activeMaterialIdx || 0;
+  sel.materials.splice(idx, 1);
+  sel.activeMaterialIdx = Math.max(0, Math.min(idx, sel.materials.length - 1));
   renderPanels();
+  updateMaterialList();
   updateActionButtons();
+});
+
+els.materialAddBtn.addEventListener('click', () => {
+  const sel = getSelectedPanel();
+  if (!sel) return;
+  els.materialAddFileInput.value = '';
+  els.materialAddFileInput.click();
+});
+
+els.materialAddFileInput.addEventListener('change', () => {
+  const file = els.materialAddFileInput.files && els.materialAddFileInput.files[0];
+  els.materialAddFileInput.value = '';
+  if (!file) return;
+  const sel = getSelectedPanel();
+  if (!sel) return;
+  if (detectFileKind(file) !== 'image') {
+    alert('画像ファイルを指定してください。');
+    return;
+  }
+  loadImageAsPanelMaterial(sel, file).catch((err) => {
+    console.error(err);
+    alert('画像の読み込みに失敗しました: ' + (err && err.message ? err.message : err));
+  });
 });
 
 applyPanelBorderWidth(Number(els.panelBorderInput.value));
@@ -1257,7 +1424,10 @@ els.deletePageBtn.addEventListener('click', () => {
   if (isPageEmpty(cur)) return;
   if (!confirm(`ページ ${state.currentPageIndex + 1} のコマ・素材・テキストをすべて消去します。よろしいですか?`)) return;
   recordUndo();
-  for (const l of cur.layers) l.el.remove();
+  for (const l of cur.layers) {
+    if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
+    l.el.remove();
+  }
   state.pages[state.currentPageIndex] = createEmptyPage();
   cur = state.pages[state.currentPageIndex];
   refreshPageView();
@@ -1265,6 +1435,8 @@ els.deletePageBtn.addEventListener('click', () => {
 });
 
 updatePageIndicator();
+
+// === Font UI ===
 
 function populateFontSelect() {
   els.propFont.innerHTML = '';
@@ -1376,6 +1548,8 @@ els.stageWrapper.addEventListener('drop', (e) => {
   openFile(file);
 });
 
+// === Image Utilities ===
+
 function blobToDataUrl(blob) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -1398,6 +1572,8 @@ function getImageNaturalSize(dataUrl) {
 
 // クリック位置(ページ座標 = canvasWidth/Height 基準)を覚えておき、メニューの「テキストを追加」で使う
 let contextMenuTargetCoords = { x: 0, y: 0 };
+// 吹き出し専用コンテキストメニューの対象レイヤー
+let contextMenuTargetStickerLayer = null;
 
 // layer-container は pointer-events: none なので、ステージ全体でメニューを受ける。
 // stage は panel-container/layer-container/text-layer すべての親なので、
@@ -1414,6 +1590,8 @@ els.stage.addEventListener('contextmenu', (e) => {
   };
   showContextMenu(e.clientX, e.clientY);
 });
+
+// === Context Menu ===
 
 function showContextMenu(clientX, clientY) {
   els.contextMenu.style.left = `${clientX}px`;
@@ -1433,6 +1611,22 @@ function hideContextMenu() {
   els.contextMenu.hidden = true;
 }
 
+function showStickerContextMenu(clientX, clientY) {
+  els.stickerContextMenu.style.left = `${clientX}px`;
+  els.stickerContextMenu.style.top = `${clientY}px`;
+  els.stickerContextMenu.hidden = false;
+  const rect = els.stickerContextMenu.getBoundingClientRect();
+  if (rect.right > window.innerWidth)
+    els.stickerContextMenu.style.left = `${Math.max(0, window.innerWidth - rect.width - 4)}px`;
+  if (rect.bottom > window.innerHeight)
+    els.stickerContextMenu.style.top = `${Math.max(0, window.innerHeight - rect.height - 4)}px`;
+}
+
+function hideStickerContextMenu() {
+  els.stickerContextMenu.hidden = true;
+  contextMenuTargetStickerLayer = null;
+}
+
 els.contextMenu.addEventListener('click', (e) => {
   const item = e.target.closest('.context-menu-item');
   if (!item) return;
@@ -1445,6 +1639,7 @@ els.contextMenu.addEventListener('click', (e) => {
   } else if (action === 'add-bubble') {
     const { x, y } = contextMenuTargetCoords;
     addStickerLayer({ x, y, src: STICKER_DEFAULT_SRC });
+    const newBubbleStickerId = cur.layers[cur.layers.length - 1].id;
     // 吹き出しの中央付近にテキストを同時追加する。文字組みは右側パネルの
     // 直前選択値(propOrientation)に従う。bubble 画像の高さはロード後にしか
     // 確定しないため、既定の縦オーバル(ほぼ正方形)前提で STICKER_DEFAULT_WIDTH
@@ -1470,7 +1665,7 @@ els.contextMenu.addEventListener('click', (e) => {
       textX = bubbleCenterX - textWidth / 2;
       textY = bubbleCenterY - textHeight / 2;
     }
-    addTextLayer({ x: textX, y: textY, orientation });
+    addTextLayer({ x: textX, y: textY, orientation, parentStickerId: newBubbleStickerId });
   } else if (action === 'add-overlay') {
     pendingOverlayCoords = { ...contextMenuTargetCoords };
     els.overlayFileInput.value = '';
@@ -1484,8 +1679,54 @@ els.contextMenu.addEventListener('click', (e) => {
     pendingPanelOverlay = { coords: { ...contextMenuTargetCoords }, panelId: panel.id };
     els.panelOverlayFileInput.value = '';
     els.panelOverlayFileInput.click();
+  } else if (action === 'add-ai-bubble') {
+    openAiDialogForBubble({ ...contextMenuTargetCoords });
   }
 });
+
+els.stickerContextMenu.addEventListener('click', (e) => {
+  const item = e.target.closest('.context-menu-item');
+  if (!item) return;
+  const action = item.dataset.action;
+  const layer = contextMenuTargetStickerLayer;
+  hideStickerContextMenu();
+  if (!layer) return;
+  if (action === 'sticker-add-text') {
+    const orientation = els.propOrientation.value === 'vertical' ? 'vertical' : 'horizontal';
+    const DEFAULT_TEXT = 'テキスト';
+    const DEFAULT_SIZE = 24;
+    const DEFAULT_LINE_HEIGHT = 1.1;
+    const charCount = [...DEFAULT_TEXT].length;
+    const cx = layer.x + (layer.width || 0) / 2;
+    const cy = layer.y + (layer.height || 0) / 2;
+    let textX, textY;
+    if (orientation === 'vertical') {
+      const textHeight = DEFAULT_SIZE * DEFAULT_LINE_HEIGHT * charCount;
+      textX = cx - DEFAULT_SIZE / 2;
+      textY = cy - textHeight / 2;
+    } else {
+      const textWidth = DEFAULT_SIZE * charCount;
+      const textHeight = DEFAULT_SIZE * DEFAULT_LINE_HEIGHT;
+      textX = cx - textWidth / 2;
+      textY = cy - textHeight / 2;
+    }
+    addTextLayer({ x: textX, y: textY, orientation, parentStickerId: layer.id });
+  } else if (action === 'sticker-move-to-panel') {
+    const cx = layer.x + (layer.width || 0) / 2;
+    const cy = layer.y + (layer.height || 0) / 2;
+    const panel = findPanelAtCanvasCoords(cx, cy);
+    if (!panel) { alert('吹き出しの中心がコマの内側にありません。'); return; }
+    recordUndo();
+    layer.panelId = panel.id;
+    applyStickerStyle(layer);
+  } else if (action === 'sticker-move-to-page') {
+    recordUndo();
+    layer.panelId = null;
+    applyStickerStyle(layer);
+  }
+});
+
+// === Layers — Coordinate Transforms & Hit Testing ===
 
 // キャンバス座標(canvasWidth/Height 基準)を含むコマを返す。コマ間の gutter にあたる
 // 隙間に乗っているときは null。
@@ -1545,14 +1786,19 @@ els.panelOverlayFileInput.addEventListener('change', () => {
 
 // メニュー外のマウスダウンで閉じる(キャプチャ段階で他の stopPropagation より先に拾う)
 document.addEventListener('mousedown', (e) => {
-  if (els.contextMenu.hidden) return;
-  if (els.contextMenu.contains(e.target)) return;
-  hideContextMenu();
+  if (!els.contextMenu.hidden && !els.contextMenu.contains(e.target)) hideContextMenu();
+  if (!els.stickerContextMenu.hidden && !els.stickerContextMenu.contains(e.target)) hideStickerContextMenu();
 }, true);
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !els.contextMenu.hidden) {
     hideContextMenu();
+  } else if (e.key === 'Escape' && !els.stickerContextMenu.hidden) {
+    hideStickerContextMenu();
+  } else if (e.key === 'Escape' && !els.aiDialog.hidden) {
+    closeAiDialog();
+  } else if (e.key === 'Escape' && !els.settingsPanel.hidden) {
+    els.settingsPanel.hidden = true;
   } else if (e.key === 'Escape' && !els.helpPanel.hidden) {
     els.helpPanel.hidden = true;
   } else if (e.key === 'Escape' && !els.shortcutsPanel.hidden) {
@@ -1597,7 +1843,9 @@ document.addEventListener('keydown', (e) => {
   }
 });
 
-function addTextLayer({ id: requestedId, x, y, text = 'テキスト', font, size, orientation, lineHeight, kind = 'text' }, targetPage = cur) {
+// === Layers — Add (Text / Sticker / Overlay) ===
+
+function addTextLayer({ id: requestedId, x, y, text = 'テキスト', font, size, orientation, lineHeight, kind = 'text', parentStickerId = null }, targetPage = cur) {
   recordUndo();
   const id = Number.isFinite(requestedId) ? requestedId : targetPage.nextId++;
   targetPage.nextId = Math.max(targetPage.nextId, id + 1);
@@ -1611,6 +1859,7 @@ function addTextLayer({ id: requestedId, x, y, text = 'テキスト', font, size
     orientation: orientation || 'horizontal',
     lineHeight: lineHeight ?? 1.1,
     kind,
+    parentStickerId: parentStickerId || null,
     el: null,
   };
   const el = document.createElement('div');
@@ -1641,13 +1890,14 @@ function isOverlayLike(layer) {
   return layer && (layer.kind === 'overlay' || layer.kind === 'panelOverlay');
 }
 
-function addStickerLayer({ id: requestedId, x, y, src, width, height, flipH, flipV }, targetPage = cur) {
+function addStickerLayer({ id: requestedId, x, y, src, width, height, flipH, flipV, panelId }, targetPage = cur) {
   recordUndo();
   const id = Number.isFinite(requestedId) ? requestedId : targetPage.nextId++;
   targetPage.nextId = Math.max(targetPage.nextId, id + 1);
   const layer = {
     id,
     kind: 'sticker',
+    panelId: panelId ?? null,
     src,
     x,
     y,
@@ -1663,12 +1913,20 @@ function addStickerLayer({ id: requestedId, x, y, src, width, height, flipH, fli
   el.dataset.id = String(id);
   el.src = src;
   layer.el = el;
+  layer.textCanvas = null;
   targetPage.layers.push(layer);
   attachStickerHandlers(layer);
   if (targetPage === cur) {
-    // ステッカーは text-preview-canvas より前(DOM 順で先 = 視覚的に背面)に挿入し、
-    // テキスト(canvas でレンダリング)が常にステッカーの上に出るようにする
-    els.layerContainer.insertBefore(el, previewCanvas);
+    // DOM順は「全 sticker 画像 → 全 sticker textCanvas → previewCanvas」に保つ。
+    // 新しい画像は既存の textCanvas 群より前(背面)へ、新しい textCanvas は
+    // previewCanvas の直前(textCanvas 群の最前面)へ挿入する。こうすると、どの
+    // 吹き出しのテキストもどの吹き出し画像より前面になり、テキストが隠れない。
+    const anchorSticker = cur.layers.find((l) => l.kind === 'sticker' && l.textCanvas);
+    els.layerContainer.insertBefore(el, anchorSticker ? anchorSticker.textCanvas : previewCanvas);
+    const textCanvas = document.createElement('canvas');
+    textCanvas.className = 'text-preview-canvas';
+    els.layerContainer.insertBefore(textCanvas, previewCanvas);
+    layer.textCanvas = textCanvas;
     // 自然サイズ未指定なら、画像ロード後にデフォルト幅で初期化する
     const initFromNatural = () => {
       if (!layer.width || !layer.height) {
@@ -1828,6 +2086,8 @@ async function addPanelOverlayFromFile(file, dropCoords, panelId) {
   });
 }
 
+// === Layers — Sticker/Overlay Handlers & Styles ===
+
 function attachStickerHandlers(layer) {
   const el = layer.el;
 
@@ -1890,6 +2150,18 @@ function attachStickerHandlers(layer) {
     layer.y = cy - layer.height / 2;
     applyStickerStyle(layer);
   }, { passive: false });
+
+  // 吹き出しを右クリックしたとき専用のコンテキストメニューを表示
+  if (layer.kind === 'sticker') {
+    el.addEventListener('contextmenu', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      selectLayer(layer.id);
+      hideContextMenu();
+      contextMenuTargetStickerLayer = layer;
+      showStickerContextMenu(e.clientX, e.clientY);
+    });
+  }
 }
 
 function applyStickerStyle(layer) {
@@ -1912,7 +2184,7 @@ function applyStickerStyle(layer) {
 // ボックス基準の inset 値(top right bottom left)で指定する。flip による rotate/scale
 // transform 後に clip-path が効くため、flipH/V を考慮して左右・上下の inset を入れ替える。
 function applyPanelOverlayClip(layer) {
-  if (!layer || layer.kind !== 'panelOverlay') return;
+  if (!layer || (layer.kind !== 'panelOverlay' && !(layer.kind === 'sticker' && layer.panelId != null))) return;
   const el = layer.el;
   if (!el) return;
   const panel = cur.panels.find((p) => p.id === layer.panelId);
@@ -1934,10 +2206,14 @@ function applyPanelOverlayClip(layer) {
   const gutterCss = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--panel-gutter')) || 0;
   const gutterCanvas = displayScale > 0 ? gutterCss / displayScale : 0;
   const half = gutterCanvas / 2;
-  const panelLeft = panel.x * w + half;
-  const panelTop = panel.y * h + half;
-  const panelRight = (panel.x + panel.w) * w - half;
-  const panelBottom = (panel.y + panel.h) * h - half;
+  // 枠線は border-box でコマの内側に描かれるため、その分だけ内側にクリップして
+  // 吹き出し/オーバーレイがコマの枠線を塗りつぶさないようにする。
+  const borderCss = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--panel-border-width')) || 0;
+  const borderCanvas = displayScale > 0 ? borderCss / displayScale : 0;
+  const panelLeft = panel.x * w + half + borderCanvas;
+  const panelTop = panel.y * h + half + borderCanvas;
+  const panelRight = (panel.x + panel.w) * w - half - borderCanvas;
+  const panelBottom = (panel.y + panel.h) * h - half - borderCanvas;
   // 画像のレイヤー座標における各辺のはみ出し量。負(panel が外側)は 0 にクランプ。
   let topIn = Math.max(0, panelTop - layer.y);
   let leftIn = Math.max(0, panelLeft - layer.x);
@@ -2204,6 +2480,10 @@ function isEditableTarget() {
 function deleteLayer(layer) {
   recordUndo();
   if (isStickerLike(layer)) removeStickerHandles(layer);
+  if (layer.kind === 'sticker' && layer.textCanvas) {
+    layer.textCanvas.remove();
+    layer.textCanvas = null;
+  }
   layer.el.remove();
   cur.layers = cur.layers.filter((l) => l.id !== layer.id);
   renderTextPreview();
@@ -2212,6 +2492,8 @@ function deleteLayer(layer) {
 }
 
 // Ctrl+C/V 用のクリップボード。アプリ内専用(OS クリップボードは経由しない)。
+// === Layers — Clipboard (Copy & Paste) ===
+
 // el は除外し、addXxxLayer に渡せる素のデータだけ保持する。
 // kind は 'text' / 'sticker' / 'overlay' のいずれか(text には monologue サブ種別を含む)。
 let clipboard = null;
@@ -2226,23 +2508,40 @@ function serializeTextLayer(layer) {
     orientation: layer.orientation,
     lineHeight: layer.lineHeight,
     kind: layer.kind, // 'text' または 'monologue'
+    parentStickerId: layer.parentStickerId || null,
   };
 }
 
-// 吹き出し(sticker)の矩形内に基準点を持つ text/monologue レイヤーを抽出する。
-// add-bubble は吹き出し中央付近にテキストを置く設計なので、layer.x/y が矩形に
-// 入っているかの簡易判定で実用上の「中身」を拾える(尾の上に偶然乗っているテキストは
-// 巻き込みうるが、許容)。
+// テキストレイヤーが「どの吹き出しに属するか」を一意に解決して sticker.id を返す。
+// どの吹き出しにも属さなければ null。描画(renderTextPreview)とドラッグ追従
+// (findTextChildrenInSticker)の両方でこの関数を使い、判定基準を統一する。
+//   1. parentStickerId が実在の sticker を指していれば、それを優先(明示的な所属)。
+//   2. 無ければ空間判定。複数の吹き出しが重なる場合は「生成順で最初に含む吹き出し」に
+//      割り当てる。これにより、コピーで後から増えた空の吹き出しを元テキストの上に
+//      重ねても、テキストは元(先に生成された)吹き出しに属したままになる。
+function resolveTextOwnerStickerId(textLayer, page = cur) {
+  if (textLayer.kind !== 'text' && textLayer.kind !== 'monologue') return null;
+  if (textLayer.parentStickerId) {
+    const explicit = page.layers.find(
+      (l) => l.kind === 'sticker' && l.id === textLayer.parentStickerId
+    );
+    if (explicit) return explicit.id;
+  }
+  for (const sl of page.layers) {
+    if (sl.kind !== 'sticker' || !sl.width || !sl.height) continue;
+    if (textLayer.x >= sl.x && textLayer.x <= sl.x + sl.width &&
+        textLayer.y >= sl.y && textLayer.y <= sl.y + sl.height) {
+      return sl.id;
+    }
+  }
+  return null;
+}
+
+// 指定 sticker に属する text/monologue レイヤーを抽出する。
+// 所属判定は resolveTextOwnerStickerId に集約(空間判定+明示 parentStickerId)。
 function findTextChildrenInSticker(sticker, page = cur) {
   if (!sticker.width || !sticker.height) return [];
-  const x0 = sticker.x;
-  const y0 = sticker.y;
-  const x1 = sticker.x + sticker.width;
-  const y1 = sticker.y + sticker.height;
-  return page.layers.filter((l) => {
-    if (l.kind !== 'text' && l.kind !== 'monologue') return false;
-    return l.x >= x0 && l.x <= x1 && l.y >= y0 && l.y <= y1;
-  });
+  return page.layers.filter((l) => resolveTextOwnerStickerId(l, page) === sticker.id);
 }
 
 function copySelectedLayer() {
@@ -2334,6 +2633,7 @@ function pasteFromClipboard() {
           orientation: c.orientation,
           lineHeight: c.lineHeight,
           kind: c.kind,
+          parentStickerId: newStickerId,
         });
       }
       // 子テキストの addTextLayer が選択を奪うので、最後に吹き出しを再選択しておく
@@ -2390,10 +2690,8 @@ document.addEventListener('keydown', (e) => {
   // パネル選択中（テキスト/ステッカー未選択）に Delete でコマ削除。
   // selectPanel / selectLayer は排他的なので getSelectedLayer() は null のはず。
   if (e.key === 'Delete' && cur.selectedPanelId != null && !getSelectedLayer()) {
-    if (canDeletePanel(getSelectedPanel())) {
-      e.preventDefault();
-      deleteSelectedPanel();
-    }
+    e.preventDefault();
+    requestDeletePanel();
     return;
   }
 
@@ -2476,10 +2774,13 @@ function applyAllLayerStyles() {
 window.addEventListener('resize', () => {
   applyAllLayerStyles();
   for (const p of cur.panels) {
-    if (!p.material) continue;
+    if (!p.materials || p.materials.length === 0) continue;
     const el = els.panelContainer.querySelector(`[data-panel-id="${p.id}"]`);
-    const img = el && el.querySelector('.panel-material');
-    if (img) applyMaterialTransform(img, p, el);
+    if (!el) continue;
+    p.materials.forEach((_, idx) => {
+      const img = el.querySelector(`.panel-material[data-mat-idx="${idx}"]`);
+      if (img) applyMaterialTransform(img, p, el, idx);
+    });
   }
 });
 if (document.fonts && document.fonts.ready) {
@@ -2849,8 +3150,10 @@ async function drawPanelsAndMaterials(ctx, page, pageW, pageH) {
   const borderPx = borderCss * scale;
 
   // 素材画像と集中線画像を並列ロード
-  const materialImgs = await Promise.all(
-    page.panels.map((p) => (p.material ? loadImageElement(p.material.src).catch(() => null) : null))
+  const materialImgsArr = await Promise.all(
+    page.panels.map((p) =>
+      Promise.all((p.materials || []).map((m) => loadImageElement(m.src).catch(() => null)))
+    )
   );
   const focusImgs = await Promise.all(
     page.panels.map((p) => (p.focus ? loadImageForCanvas(p.focus.src).catch(() => null) : null))
@@ -2860,18 +3163,25 @@ async function drawPanelsAndMaterials(ctx, page, pageW, pageH) {
     const rect = computePanelPixelRect(p, pageW, pageH, gutterPx);
     if (rect.w <= 0 || rect.h <= 0) return;
 
-    // 素材描画は枠の内側にクリップ
-    if (p.material && materialImgs[i]) {
+    // 素材描画は枠の内側にクリップ（重ね順に描画）
+    const mats = p.materials || [];
+    const imgs = materialImgsArr[i] || [];
+    if (mats.length > 0) {
       ctx.save();
       ctx.beginPath();
       ctx.rect(rect.x, rect.y, rect.w, rect.h);
       ctx.clip();
-      const place = computeMaterialPlacement(p.material, rect.w, rect.h);
-      if (place) {
-        ctx.translate(rect.x + place.cx, rect.y + place.cy);
-        ctx.rotate((place.rotation * Math.PI) / 180);
-        ctx.drawImage(materialImgs[i], -place.finalW / 2, -place.finalH / 2, place.finalW, place.finalH);
-      }
+      mats.forEach((mat, midx) => {
+        if (!imgs[midx]) return;
+        const place = computeMaterialPlacement(mat, rect.w, rect.h);
+        if (place) {
+          ctx.save();
+          ctx.translate(rect.x + place.cx, rect.y + place.cy);
+          ctx.rotate((place.rotation * Math.PI) / 180);
+          ctx.drawImage(imgs[midx], -place.finalW / 2, -place.finalH / 2, place.finalW, place.finalH);
+          ctx.restore();
+        }
+      });
       ctx.restore();
     }
 
@@ -2920,6 +3230,8 @@ async function ensureExportFontsReady() {
     await document.fonts.ready;
   }
 }
+
+// === Text Rendering (Canvas) ===
 
 function splitTextLines(text) {
   return String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
@@ -2994,23 +3306,49 @@ function measureTextLayerBounds(layer) {
 }
 
 function syncPreviewCanvasSize() {
-  previewCanvas.width = cur.canvasWidth;
-  previewCanvas.height = cur.canvasHeight;
-  previewCanvas.style.width = `${els.layerContainer.clientWidth}px`;
-  previewCanvas.style.height = `${els.layerContainer.clientHeight}px`;
-  return previewCanvas.width > 0 && previewCanvas.height > 0;
+  const w = cur.canvasWidth;
+  const h = cur.canvasHeight;
+  const cssW = `${els.layerContainer.clientWidth}px`;
+  const cssH = `${els.layerContainer.clientHeight}px`;
+  previewCanvas.width = w;
+  previewCanvas.height = h;
+  previewCanvas.style.width = cssW;
+  previewCanvas.style.height = cssH;
+  for (const l of cur.layers) {
+    if (l.kind === 'sticker' && l.textCanvas) {
+      l.textCanvas.width = w;
+      l.textCanvas.height = h;
+      l.textCanvas.style.width = cssW;
+      l.textCanvas.style.height = cssH;
+    }
+  }
+  return w > 0 && h > 0;
 }
 
 function renderTextPreview() {
   if (!syncPreviewCanvasSize()) return;
-  const ctx = previewCanvas.getContext('2d');
-  ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+  const mainCtx = previewCanvas.getContext('2d');
+  mainCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+  // 各 sticker の textCanvas をクリアし、sticker id → ctx のマップを作る
+  const stickerCtxMap = new Map();
+  for (const l of cur.layers) {
+    if (l.kind === 'sticker' && l.textCanvas) {
+      const ctx = l.textCanvas.getContext('2d');
+      ctx.clearRect(0, 0, l.textCanvas.width, l.textCanvas.height);
+      stickerCtxMap.set(l.id, ctx);
+    }
+  }
   cur.layers.forEach((layer) => {
     // 画像系レイヤー(sticker / overlay)は DOM の <img> として直接表示するのでプレビュー canvas には描かない
     if (isStickerLike(layer)) return;
-    if (!layer.el.classList.contains('editing')) {
-      drawTextLayer(ctx, layer);
-    }
+    if (layer.el.classList.contains('editing')) return;
+    // 所属する吹き出しがあればその textCanvas に、なければ main canvas に描く。
+    // 所属判定はドラッグ追従(findTextChildrenInSticker)と同じ resolveTextOwnerStickerId。
+    const ownerId = resolveTextOwnerStickerId(layer);
+    const ctx = (ownerId != null && stickerCtxMap.has(ownerId))
+      ? stickerCtxMap.get(ownerId)
+      : mainCtx;
+    drawTextLayer(ctx, layer);
   });
 }
 
@@ -3141,6 +3479,8 @@ function drawTextLayer(ctx, layer) {
   }
 }
 
+// === PNG Export & Download ===
+
 function canvasToPngBlob(canvas) {
   return new Promise((resolve, reject) => {
     canvas.toBlob((pngBlob) => {
@@ -3206,6 +3546,7 @@ function buildProjectData(page = cur, overlayFileById = new Map()) {
           height: l.height,
           flipH: !!l.flipH,
           flipV: !!l.flipV,
+          panelId: l.panelId ?? null,
         };
       }
       if (l.kind === 'overlay') {
@@ -3255,13 +3596,17 @@ async function applyProjectData(data, targetPage = cur, overlayEntries = {}) {
   const wasRestoringUndo = isRestoringUndo;
   isRestoringUndo = true;
   try {
-    for (const l of targetPage.layers) l.el.remove();
+    for (const l of targetPage.layers) {
+      if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
+      l.el.remove();
+    }
     targetPage.layers = [];
     targetPage.selectedId = null;
     targetPage.nextId = 1;
     for (const l of data.layers) {
     if (l.kind === 'sticker') {
       addStickerLayer({
+        id: Number(l.id) || undefined,
         x: Number(l.x) || 0,
         y: Number(l.y) || 0,
         src: typeof l.src === 'string' ? l.src : STICKER_DEFAULT_SRC,
@@ -3269,6 +3614,7 @@ async function applyProjectData(data, targetPage = cur, overlayEntries = {}) {
         height: typeof l.height === 'number' ? l.height : 0,
         flipH: !!l.flipH,
         flipV: !!l.flipV,
+        panelId: Number(l.panelId) || null,
       }, targetPage);
       continue;
     }
@@ -3332,6 +3678,7 @@ async function applyProjectData(data, targetPage = cur, overlayEntries = {}) {
       orientation: l.orientation,
       lineHeight: typeof l.lineHeight === 'number' ? l.lineHeight : undefined,
       kind: (l.kind === 'monologue' || l.kind === 'bubble') ? l.kind : 'text',
+      parentStickerId: Number(l.parentStickerId) || null,
     }, targetPage);
   }
     if (targetPage === cur) deselect();
@@ -3359,6 +3706,8 @@ function dataUrlToBlob(dataUrl) {
   for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
   return new Blob([arr], { type: mime });
 }
+
+// === Bundle (.mj) Save & Load ===
 
 function anyPageHasContent() {
   return state.pages.some((p) => hasPageContent(p));
@@ -3401,20 +3750,24 @@ async function buildBundleBlob() {
       canvasWidth: page.canvasWidth,
       canvasHeight: page.canvasHeight,
       panels: page.panels.map((p) => {
-        const out = { id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, material: null, focus: null };
-        if (p.material) {
-          const blob = dataUrlToBlob(p.material.src);
-          const ext = extFromMime(blob.type);
-          const file = `materials/${p.id}${ext}`;
-          zip.file(`pages/${idx}/${file}`, blob);
-          out.material = {
-            file,
-            naturalWidth: p.material.naturalWidth,
-            naturalHeight: p.material.naturalHeight,
-            tx: p.material.tx, ty: p.material.ty,
-            scale: p.material.scale, rotation: p.material.rotation,
-          };
-        }
+        const out = { id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, materials: [], activeMaterialIdx: p.activeMaterialIdx || 0, focus: null };
+        (p.materials || []).forEach((mat, midx) => {
+          try {
+            const blob = dataUrlToBlob(mat.src);
+            const ext = extFromMime(blob.type);
+            const file = `materials/${p.id}_${midx}${ext}`;
+            zip.file(`pages/${idx}/${file}`, blob);
+            out.materials.push({
+              file,
+              naturalWidth: mat.naturalWidth,
+              naturalHeight: mat.naturalHeight,
+              tx: mat.tx, ty: mat.ty,
+              scale: mat.scale, rotation: mat.rotation,
+            });
+          } catch (err) {
+            console.warn(`コマ ${p.id} 素材 ${midx} の書き出しに失敗:`, err);
+          }
+        });
         if (p.focus) {
           // 集中線は同梱アセット由来。src(アセットパス)・scale・rotation のみ保存する。
           out.focus = {
@@ -3477,7 +3830,10 @@ els.saveProjectBtn.addEventListener('click', () => saveProject());
 
 function resetAllPagesForBundle() {
   // 表示中ページの DOM をクリア
-  for (const l of cur.layers) l.el.remove();
+  for (const l of cur.layers) {
+    if (l.kind === 'sticker' && l.textCanvas) { l.textCanvas.remove(); l.textCanvas = null; }
+    l.el.remove();
+  }
   // 全ページを空に置き換え
   for (let i = 0; i < state.pages.length; i++) {
     state.pages[i] = createEmptyPage();
@@ -3517,20 +3873,25 @@ async function loadPageFromBundle(pageIndex, entries) {
       if (typeof data.canvasHeight === 'number') page.canvasHeight = data.canvasHeight;
       page.panels = [];
       for (const p of (data.panels || [])) {
-        const panel = { id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, material: null, focus: null };
-        if (p.material) {
-          const matEntry = materialEntries[p.id];
-          if (matEntry) {
-            const blob = await matEntry.async('blob');
-            const dataUrl = await blobToDataUrl(blob);
-            panel.material = {
-              src: dataUrl,
-              naturalWidth: p.material.naturalWidth || 0,
-              naturalHeight: p.material.naturalHeight || 0,
-              tx: p.material.tx || 0, ty: p.material.ty || 0,
-              scale: p.material.scale || 1, rotation: p.material.rotation || 0,
-            };
-          }
+        const panel = { id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, materials: [], activeMaterialIdx: p.activeMaterialIdx || 0, focus: null };
+        // 旧形式 (material: {}) を配列に変換して読み込む
+        const rawMaterials = Array.isArray(p.materials) ? p.materials
+          : (p.material ? [p.material] : []);
+        for (let midx = 0; midx < rawMaterials.length; midx++) {
+          const mdata = rawMaterials[midx];
+          if (!mdata || !mdata.file) continue;
+          // まず新形式キー (panelId_midx) で探し、なければ旧形式 (panelId) で探す
+          const matEntry = materialEntries[`${p.id}_${midx}`] || materialEntries[p.id];
+          if (!matEntry) continue;
+          const blob = await matEntry.async('blob');
+          const dataUrl = await blobToDataUrl(blob);
+          panel.materials.push({
+            src: dataUrl,
+            naturalWidth: mdata.naturalWidth || 0,
+            naturalHeight: mdata.naturalHeight || 0,
+            tx: mdata.tx || 0, ty: mdata.ty || 0,
+            scale: mdata.scale || 1, rotation: mdata.rotation || 0,
+          });
         }
         if (p.focus && typeof p.focus.src === 'string' && FOCUS_CATALOG.some((c) => c.src === p.focus.src)) {
           panel.focus = {
@@ -3546,7 +3907,8 @@ async function loadPageFromBundle(pageIndex, entries) {
         page.panels = TEMPLATES[DEFAULT_TEMPLATE].panels.map((p) => ({
           id: page.nextPanelId++,
           x: p.x, y: p.y, w: p.w, h: p.h,
-          material: null,
+          materials: [],
+          activeMaterialIdx: 0,
           focus: null,
         }));
       }
@@ -3597,9 +3959,11 @@ async function loadBundleFile(file, handle = null) {
     const idx = parseInt(m[1], 10) - 1;
     if (idx < 0 || idx >= MAX_PAGES) return;
     const name = m[2];
-    const matM = name.match(/^materials\/(\d+)\.[a-z0-9]+$/i);
+    const matM = name.match(/^materials\/(\d+(?:_\d+)?)\.[a-z0-9]+$/i);
     if (matM) {
-      pageEntries[idx].materialEntries[parseInt(matM[1], 10)] = entry;
+      // 新形式: panelId_matIdx / 旧形式: panelId (数値のみ)
+      const key = /^\d+$/.test(matM[1]) ? parseInt(matM[1], 10) : matM[1];
+      pageEntries[idx].materialEntries[key] = entry;
       return;
     }
     // overlays/<layerId>.<ext> は text.json の {file: ...} と突き合わせるため
@@ -3676,6 +4040,12 @@ els.helpClose.addEventListener('click', () => {
 els.shortcutsClose.addEventListener('click', () => {
   els.shortcutsPanel.hidden = true;
 });
+els.settingsToggle.addEventListener('click', () => {
+  els.settingsPanel.hidden = !els.settingsPanel.hidden;
+});
+els.settingsClose.addEventListener('click', () => {
+  els.settingsPanel.hidden = true;
+});
 
 // textarea への入力を現在ページのメモに反映
 els.memoText.addEventListener('input', () => {
@@ -3683,6 +4053,8 @@ els.memoText.addEventListener('input', () => {
   cur.memo = els.memoText.value;
   updateActionButtons();
 });
+
+// === Memo ===
 
 function loadMemoFile(file) {
   if ((cur.memo || '').trim() && !confirm(`ページ ${state.currentPageIndex + 1} の現在のメモを上書きします。よろしいですか?`)) return;
@@ -3797,6 +4169,10 @@ async function renderCurrentPageToPngBlob() {
   const exportScale = pageW / previewW;
   const gutterCss = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--panel-gutter')) || 0;
   const exportGutterPx = gutterCss * exportScale;
+  // 枠線は border-box でコマの内側に描かれるため、その分だけ内側にクリップして
+  // 吹き出し/オーバーレイがコマの枠線を塗りつぶさないようにする(プレビューと一致)。
+  const borderCss = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--panel-border-width')) || 0;
+  const exportBorderPx = borderCss * exportScale;
   const drawImageLayer = (layer, img) => {
     if (!img || !(layer.width > 0 && layer.height > 0)) return;
     if (layer.flipH || layer.flipV) {
@@ -3819,9 +4195,11 @@ async function renderCurrentPageToPngBlob() {
     if (!panel) return;
     const rect = computePanelPixelRect(panel, pageW, pageH, exportGutterPx);
     if (rect.w <= 0 || rect.h <= 0) return;
+    const bx = Math.min(exportBorderPx, rect.w / 2);
+    const by = Math.min(exportBorderPx, rect.h / 2);
     ctx.save();
     ctx.beginPath();
-    ctx.rect(rect.x, rect.y, rect.w, rect.h);
+    ctx.rect(rect.x + bx, rect.y + by, rect.w - bx * 2, rect.h - by * 2);
     ctx.clip();
     drawImageLayer(layer, img);
     ctx.restore();
@@ -3834,7 +4212,10 @@ async function renderCurrentPageToPngBlob() {
     if (layer.kind === 'overlay') drawImageLayer(layer, layerImgs[i]);
   });
   cur.layers.forEach((layer, i) => {
-    if (layer.kind === 'sticker') drawImageLayer(layer, layerImgs[i]);
+    if (layer.kind === 'sticker') {
+      if (layer.panelId != null) drawPanelOverlayLayer(layer, layerImgs[i]);
+      else drawImageLayer(layer, layerImgs[i]);
+    }
   });
   cur.layers.forEach((layer) => {
     if (!isStickerLike(layer)) drawTextLayer(ctx, layer);
@@ -3860,6 +4241,347 @@ els.exportBtn.addEventListener('click', async () => {
     els.exportBtn.disabled = !hasPageVisualContent(cur);
   }
 });
+
+// --- Gemini AI 画像生成 ---
+
+function getGeminiApiKey() {
+  try { return localStorage.getItem(GEMINI_API_KEY_STORAGE_KEY) || ''; } catch { return ''; }
+}
+
+function storeGeminiApiKey(key) {
+  try {
+    if (key) localStorage.setItem(GEMINI_API_KEY_STORAGE_KEY, key);
+    else localStorage.removeItem(GEMINI_API_KEY_STORAGE_KEY);
+  } catch {}
+}
+
+function getGeminiModel() {
+  try { return localStorage.getItem(GEMINI_MODEL_STORAGE_KEY) || GEMINI_DEFAULT_MODEL; } catch { return GEMINI_DEFAULT_MODEL; }
+}
+
+function storeGeminiModel(model) {
+  try {
+    if (model) localStorage.setItem(GEMINI_MODEL_STORAGE_KEY, model);
+    else localStorage.removeItem(GEMINI_MODEL_STORAGE_KEY);
+  } catch {}
+}
+
+// API キーで利用可能なモデル一覧を取得し、generateContent をサポートするものを返す
+async function listGeminiModels() {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) throw new Error('Gemini API Key が設定されていません。');
+  const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}&pageSize=200`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    let msg = `API エラー (${res.status})`;
+    try { const j = await res.json(); if (j?.error?.message) msg += ': ' + j.error.message; } catch {}
+    throw new Error(msg);
+  }
+  const json = await res.json();
+  return (json.models || []).filter((m) => (m.supportedGenerationMethods || []).includes('generateContent'));
+}
+
+// Gemini が受け付ける画像形式に正規化する。MIME が image/png|jpeg|webp 以外
+// (application/octet-stream など)の場合は canvas で PNG に焼き直す。
+const GEMINI_SUPPORTED_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/heic', 'image/heif'];
+
+function reencodeDataUrlToPng(dataUrl) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      canvas.width = img.naturalWidth || img.width;
+      canvas.height = img.naturalHeight || img.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0);
+      resolve(canvas.toDataURL('image/png'));
+    };
+    img.onerror = () => reject(new Error('入力画像の読み込みに失敗しました。'));
+    img.src = dataUrl;
+  });
+}
+
+async function normalizeImageDataUrl(dataUrl) {
+  const mimeMatch = dataUrl.match(/^data:([^;]+)/);
+  const mime = mimeMatch ? mimeMatch[1] : '';
+  if (GEMINI_SUPPORTED_MIME.includes(mime)) return dataUrl;
+  return reencodeDataUrlToPng(dataUrl);
+}
+
+async function callGeminiImageGeneration(prompt, inputImageDataUrl) {
+  const apiKey = getGeminiApiKey();
+  if (!apiKey) throw new Error('Gemini API Key が設定されていません。設定画面の「AI（Gemini）」から設定してください。');
+
+  const parts = [];
+  if (inputImageDataUrl) {
+    const normalized = await normalizeImageDataUrl(inputImageDataUrl);
+    const comma = normalized.indexOf(',');
+    const header = normalized.slice(0, comma);
+    const data = normalized.slice(comma + 1);
+    const mimeMatch = header.match(/data:([^;]+)/);
+    const mimeType = mimeMatch ? mimeMatch[1] : 'image/png';
+    parts.push({ inlineData: { mimeType, data } });
+  }
+  parts.push({ text: prompt });
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${getGeminiModel()}:generateContent?key=${apiKey}`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      contents: [{ parts }],
+      generationConfig: { responseModalities: ['IMAGE', 'TEXT'] },
+    }),
+  });
+
+  if (!res.ok) {
+    let msg = `API エラー (${res.status})`;
+    try {
+      const errJson = await res.json();
+      const detail = errJson?.error?.message;
+      if (detail) msg += ': ' + detail;
+    } catch {}
+    throw new Error(msg);
+  }
+
+  const json = await res.json();
+  const responseParts = json?.candidates?.[0]?.content?.parts || [];
+  const imgPart = responseParts.find((p) => p.inlineData?.data);
+  if (!imgPart) {
+    const textPart = responseParts.find((p) => p.text);
+    throw new Error(textPart ? 'モデルの応答(テキスト): ' + textPart.text : '画像が生成されませんでした。');
+  }
+  return `data:${imgPart.inlineData.mimeType || 'image/png'};base64,${imgPart.inlineData.data}`;
+}
+
+// AI ダイアログの状態
+const aiDialogState = {
+  mode: null,
+  targetPanel: null,
+  targetCoords: null,
+  resultDataUrl: null,
+};
+
+function syncAiModelSelect() {
+  const current = getGeminiModel();
+  let found = false;
+  for (const opt of els.aiModelSelect.options) {
+    if (opt.value === current) { opt.selected = true; found = true; break; }
+  }
+  if (!found) {
+    let customOpt = els.aiModelSelect.querySelector('option[data-custom]');
+    if (!customOpt) {
+      customOpt = document.createElement('option');
+      customOpt.dataset.custom = '1';
+      els.aiModelSelect.appendChild(customOpt);
+    }
+    customOpt.value = current;
+    customOpt.textContent = `カスタム: ${current}`;
+    customOpt.selected = true;
+  }
+}
+
+els.aiModelSelect.addEventListener('change', () => {
+  storeGeminiModel(els.aiModelSelect.value);
+});
+
+function resetAiDialogOutput() {
+  els.aiPromptInput.value = '';
+  els.aiOutputPreview.hidden = true;
+  els.aiResultImg.src = '';
+  els.aiStatus.hidden = true;
+  els.aiStatus.textContent = '';
+  els.aiApplyBtn.disabled = true;
+  els.aiGenerateBtn.disabled = false;
+}
+
+function openAiDialogForPanel(panel) {
+  const idx = panel?.activeMaterialIdx || 0;
+  const mat = panel?.materials && panel.materials[idx];
+  if (!mat) {
+    alert('素材が設定されていません。まずコマに画像を配置してください。');
+    return;
+  }
+  aiDialogState.mode = 'panel';
+  aiDialogState.targetPanel = panel;
+  aiDialogState.resultDataUrl = null;
+  els.aiDialogTitle.textContent = 'AI でコマ画像を微調整';
+  els.aiInputPreview.hidden = false;
+  els.aiInputImg.src = mat.src;
+  els.aiPromptInput.placeholder = '例: 夜のシーンにして / もっとダークな雰囲気に / 雨の効果を加えて';
+  syncAiModelSelect();
+  resetAiDialogOutput();
+  els.aiDialog.hidden = false;
+  els.aiPromptInput.focus();
+}
+
+function openAiDialogForBubble(coords) {
+  aiDialogState.mode = 'bubble';
+  aiDialogState.targetPanel = null;
+  aiDialogState.targetCoords = coords;
+  aiDialogState.resultDataUrl = null;
+  els.aiDialogTitle.textContent = 'AI で吹き出しを生成';
+  els.aiInputPreview.hidden = true;
+  els.aiInputImg.src = '';
+  els.aiPromptInput.placeholder = '例: ギザギザした怒りの吹き出し / 丸くてかわいい吹き出し / 大きなテール付き吹き出し';
+  syncAiModelSelect();
+  resetAiDialogOutput();
+  els.aiDialog.hidden = false;
+  els.aiPromptInput.focus();
+}
+
+function closeAiDialog() {
+  els.aiDialog.hidden = true;
+  aiDialogState.mode = null;
+  aiDialogState.targetPanel = null;
+  aiDialogState.resultDataUrl = null;
+}
+
+els.aiGenerateBtn.addEventListener('click', async () => {
+  const prompt = els.aiPromptInput.value.trim();
+  if (!prompt) { alert('プロンプトを入力してください。'); return; }
+
+  els.aiGenerateBtn.disabled = true;
+  els.aiApplyBtn.disabled = true;
+  els.aiOutputPreview.hidden = true;
+  els.aiStatus.textContent = '生成中...';
+  els.aiStatus.hidden = false;
+
+  try {
+    let fullPrompt;
+    let inputImage = null;
+    if (aiDialogState.mode === 'panel') {
+      const _aiIdx = aiDialogState.targetPanel?.activeMaterialIdx || 0;
+      inputImage = aiDialogState.targetPanel?.materials?.[_aiIdx]?.src || null;
+      fullPrompt = prompt;
+    } else {
+      fullPrompt = `漫画の吹き出し。${prompt}。白い塗りつぶし、黒いアウトライン、白い背景。テキストや文字を含めないこと。`;
+    }
+    const dataUrl = await callGeminiImageGeneration(fullPrompt, inputImage);
+    aiDialogState.resultDataUrl = dataUrl;
+    els.aiResultImg.src = dataUrl;
+    els.aiOutputPreview.hidden = false;
+    els.aiStatus.textContent = '生成完了';
+    els.aiApplyBtn.disabled = false;
+  } catch (err) {
+    els.aiStatus.textContent = '失敗: ' + (err?.message || String(err));
+    console.error(err);
+  } finally {
+    els.aiGenerateBtn.disabled = false;
+  }
+});
+
+els.aiApplyBtn.addEventListener('click', async () => {
+  const dataUrl = aiDialogState.resultDataUrl;
+  if (!dataUrl) return;
+
+  if (aiDialogState.mode === 'panel') {
+    const panel = aiDialogState.targetPanel;
+    if (!panel) return;
+    const sz = await getImageNaturalSize(dataUrl);
+    recordUndo();
+    if (!panel.materials) panel.materials = [];
+    const _applyIdx = panel.activeMaterialIdx || 0;
+    if (_applyIdx < panel.materials.length) {
+      panel.materials[_applyIdx] = { src: dataUrl, naturalWidth: sz.width, naturalHeight: sz.height, tx: 0, ty: 0, scale: 1, rotation: 0 };
+    } else {
+      panel.materials.push({ src: dataUrl, naturalWidth: sz.width, naturalHeight: sz.height, tx: 0, ty: 0, scale: 1, rotation: 0 });
+      panel.activeMaterialIdx = panel.materials.length - 1;
+    }
+    cur.selectedPanelId = panel.id;
+    renderPanels();
+    updateMaterialList();
+    updateActionButtons();
+  } else if (aiDialogState.mode === 'bubble') {
+    const coords = aiDialogState.targetCoords || { x: cur.canvasWidth / 2, y: cur.canvasHeight / 2 };
+    const sz = await getImageNaturalSize(dataUrl);
+    const w = cur.canvasWidth * 0.4;
+    const h = sz.width > 0 ? w * (sz.height / sz.width) : w;
+    addOverlayLayer({ x: coords.x - w / 2, y: coords.y - h / 2, src: dataUrl, width: w, height: h, naturalWidth: sz.width, naturalHeight: sz.height });
+  }
+  closeAiDialog();
+});
+
+els.aiCancelBtn.addEventListener('click', closeAiDialog);
+els.aiDialogCloseBtn.addEventListener('click', closeAiDialog);
+els.aiDialog.addEventListener('click', (e) => { if (e.target === els.aiDialog) closeAiDialog(); });
+
+// AI パネル微調整ボタン
+els.aiTunePanelBtn.addEventListener('click', () => {
+  openAiDialogForPanel(getSelectedPanel());
+});
+
+// AI 設定: API Key / モデル管理
+(function initGeminiSettingsUi() {
+  const stored = getGeminiApiKey();
+  if (stored) els.geminiApiKeyInput.value = stored;
+  els.geminiModelInput.value = getGeminiModel();
+}());
+
+els.geminiApiKeySaveBtn.addEventListener('click', () => {
+  storeGeminiApiKey(els.geminiApiKeyInput.value.trim());
+  els.geminiApiKeySavedMsg.hidden = false;
+  setTimeout(() => { els.geminiApiKeySavedMsg.hidden = true; }, 2000);
+});
+
+els.geminiApiKeyToggle.addEventListener('click', () => {
+  const isHidden = els.geminiApiKeyInput.type === 'password';
+  els.geminiApiKeyInput.type = isHidden ? 'text' : 'password';
+  els.geminiApiKeyToggle.textContent = isHidden ? '非表示' : '表示';
+});
+
+els.geminiModelSaveBtn.addEventListener('click', () => {
+  const model = els.geminiModelInput.value.trim() || GEMINI_DEFAULT_MODEL;
+  storeGeminiModel(model);
+  els.geminiModelInput.value = model;
+  els.geminiApiKeySavedMsg.hidden = false;
+  setTimeout(() => { els.geminiApiKeySavedMsg.hidden = true; }, 2000);
+});
+
+els.geminiListModelsBtn.addEventListener('click', async () => {
+  const box = els.geminiModelList;
+  box.hidden = false;
+  box.textContent = '取得中...';
+  try {
+    const models = await listGeminiModels();
+    box.innerHTML = '';
+    if (models.length === 0) {
+      box.textContent = '利用可能なモデルがありませんでした。';
+      return;
+    }
+    // 画像生成系を上に並べると選びやすい（名前に image を含むもの）
+    models.sort((a, b) => {
+      const ai = /image/i.test(a.name) ? 0 : 1;
+      const bi = /image/i.test(b.name) ? 0 : 1;
+      return ai - bi;
+    });
+    const hint = document.createElement('p');
+    hint.className = 'help-note';
+    hint.textContent = '画像生成には名前に「image」を含むモデルを選んでください。クリックで上の欄に設定されます。';
+    box.appendChild(hint);
+    for (const m of models) {
+      const id = (m.name || '').replace(/^models\//, '');
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'ai-model-item';
+      if (/image/i.test(id)) btn.classList.add('is-image');
+      btn.textContent = id;
+      btn.title = m.description || id;
+      btn.addEventListener('click', () => {
+        els.geminiModelInput.value = id;
+        storeGeminiModel(id);
+        els.geminiApiKeySavedMsg.hidden = false;
+        setTimeout(() => { els.geminiApiKeySavedMsg.hidden = true; }, 2000);
+      });
+      box.appendChild(btn);
+    }
+  } catch (err) {
+    box.textContent = '失敗: ' + (err?.message || String(err));
+    console.error(err);
+  }
+});
+
+// === Utilities / Batch PNG Export ===
 
 // 次フレームまで待ってレイアウトを確定させる(ページ切替後の DOM 計測のため)
 function nextFrame() {
