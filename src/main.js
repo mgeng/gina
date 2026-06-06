@@ -55,6 +55,9 @@ const els = {
   splitLeftRightBtn: document.getElementById('splitLeftRightBtn'),
   deletePanelBtn: document.getElementById('deletePanelBtn'),
   panelMaterialProps: document.getElementById('panelMaterialProps'),
+  materialList: document.getElementById('materialList'),
+  materialAddBtn: document.getElementById('materialAddBtn'),
+  materialAddFileInput: document.getElementById('materialAddFileInput'),
   materialResetBtn: document.getElementById('materialResetBtn'),
   materialRemoveBtn: document.getElementById('materialRemoveBtn'),
   panelFocusProps: document.getElementById('panelFocusProps'),
@@ -424,7 +427,7 @@ function createEmptyPage() {
     nextId: 1,
     memo: '',
     template: DEFAULT_TEMPLATE,
-    panels: [], // { id, x, y, w, h, material, focus } 0-1 正規化
+    panels: [], // { id, x, y, w, h, materials, activeMaterialIdx, focus } 0-1 正規化
     nextPanelId: 1,
     selectedPanelId: null,
     canvasWidth: DEFAULT_CANVAS_WIDTH,
@@ -434,7 +437,8 @@ function createEmptyPage() {
   page.panels = TEMPLATES[DEFAULT_TEMPLATE].panels.map((p) => ({
     id: page.nextPanelId++,
     x: p.x, y: p.y, w: p.w, h: p.h,
-    material: null,
+    materials: [],
+    activeMaterialIdx: 0,
     focus: null,
   }));
   return page;
@@ -512,7 +516,8 @@ function snapshotPage(page = cur) {
         y: p.y,
         w: p.w,
         h: p.h,
-        material: clonePlain(p.material),
+        materials: clonePlain(p.materials || []),
+        activeMaterialIdx: p.activeMaterialIdx || 0,
         focus: clonePlain(p.focus),
       })),
       nextPanelId: page.nextPanelId,
@@ -551,7 +556,8 @@ function restoreCurrentPageSnapshot(snapshot) {
     y: p.y,
     w: p.w,
     h: p.h,
-    material: clonePlain(p.material),
+    materials: clonePlain(p.materials || []),
+    activeMaterialIdx: p.activeMaterialIdx || 0,
     focus: clonePlain(p.focus),
   }));
   cur.nextPanelId = data.nextPanelId || 1;
@@ -605,7 +611,7 @@ function undoLastChange() {
 // 何か書き出す/保存する価値があるかどうか。コマ割りは常に存在する前提なので、
 // 「素材かテキストが何か置かれているか」で判定する。
 function hasPageVisualContent(page) {
-  return page.panels.some((p) => p.material || p.focus) || page.layers.length > 0;
+  return page.panels.some((p) => (p.materials && p.materials.length > 0) || p.focus) || page.layers.length > 0;
 }
 
 function hasPageContent(page) {
@@ -816,8 +822,10 @@ function startEdgeDrag(panel, edge, startEvent) {
       const el = els.panelContainer.querySelector(`[data-panel-id="${s.panel.id}"]`);
       if (el) {
         applyPanelLayoutStyle(el, s.panel);
-        const img = el.querySelector('.panel-material');
-        if (img) applyMaterialTransform(img, s.panel, el);
+        (s.panel.materials || []).forEach((_, midx) => {
+          const img = el.querySelector(`.panel-material[data-mat-idx="${midx}"]`);
+          if (img) applyMaterialTransform(img, s.panel, el, midx);
+        });
         const fimg = el.querySelector('.panel-focus');
         if (fimg) applyFocusTransform(fimg, s.panel, el);
       }
@@ -839,8 +847,9 @@ function startEdgeDrag(panel, edge, startEvent) {
 // === Panels — Material & Focus ===
 
 // 素材 img を「コマ全体を覆う cover フィット」を基準に、user の tx/ty/scale/rotation で動かす。
-function applyMaterialTransform(img, panel, panelEl) {
-  const m = panel.material;
+function applyMaterialTransform(img, panel, panelEl, matIdx) {
+  const idx = matIdx ?? (panel.activeMaterialIdx || 0);
+  const m = panel.materials && panel.materials[idx];
   if (!m) return;
   const pw = panelEl.clientWidth;
   const ph = panelEl.clientHeight;
@@ -858,17 +867,19 @@ function applyMaterialTransform(img, panel, panelEl) {
 }
 
 function mountMaterialOnPanel(panelEl, panel) {
-  if (!panel.material) return;
-  const img = document.createElement('img');
-  img.className = 'panel-material';
-  img.src = panel.material.src;
-  img.draggable = false;
+  const mats = panel.materials || [];
+  if (mats.length === 0) return;
   panelEl.classList.add('has-material');
-  panelEl.appendChild(img);
-  // 画像 onload 後の natural size とコマレイアウトの両方が揃ってから transform 反映
-  applyMaterialTransform(img, panel, panelEl);
-  // 初回レンダ時にコマがまだ 0 サイズだったケースに備えて次フレームで再適用
-  requestAnimationFrame(() => applyMaterialTransform(img, panel, panelEl));
+  mats.forEach((mat, idx) => {
+    const img = document.createElement('img');
+    img.className = 'panel-material';
+    img.dataset.matIdx = String(idx);
+    img.src = mat.src;
+    img.draggable = false;
+    panelEl.appendChild(img);
+    applyMaterialTransform(img, panel, panelEl, idx);
+    requestAnimationFrame(() => applyMaterialTransform(img, panel, panelEl, idx));
+  });
 }
 
 // 集中線 img を「コマ全体を contain(コマに収まる最小スケール) フィット」を基準に、
@@ -940,37 +951,41 @@ async function loadImageAsPanelMaterial(panel, blob) {
   const dataUrl = await blobToDataUrl(blob);
   const sz = await getImageNaturalSize(dataUrl);
   recordUndo();
-  panel.material = {
+  if (!panel.materials) panel.materials = [];
+  panel.materials.push({
     src: dataUrl,
     naturalWidth: sz.width,
     naturalHeight: sz.height,
     tx: 0, ty: 0,
     scale: 1,
     rotation: 0,
-  };
-  // 素材の img を panel DOM にマウントするため、ここは renderPanels で再描画する
-  // （selectPanel は class toggle のみで DOM 再生成しないため）
+  });
+  panel.activeMaterialIdx = panel.materials.length - 1;
   cur.selectedPanelId = panel.id;
   renderPanels();
+  updateMaterialList();
   updateActionButtons();
 }
 
 function startMaterialDrag(panel, panelEl, startEvent) {
   startEvent.preventDefault();
   startEvent.stopPropagation();
+  const idx = panel.activeMaterialIdx || 0;
+  const mat = panel.materials && panel.materials[idx];
+  if (!mat) return;
   recordUndo();
   const startX = startEvent.clientX;
   const startY = startEvent.clientY;
   const pw = panelEl.clientWidth;
   const ph = panelEl.clientHeight;
-  const origTx = panel.material.tx || 0;
-  const origTy = panel.material.ty || 0;
-  const img = panelEl.querySelector('.panel-material');
+  const origTx = mat.tx || 0;
+  const origTy = mat.ty || 0;
+  const img = panelEl.querySelector(`.panel-material[data-mat-idx="${idx}"]`);
   document.body.style.cursor = 'grabbing';
   const onMove = (ev) => {
-    panel.material.tx = origTx + (ev.clientX - startX) / pw;
-    panel.material.ty = origTy + (ev.clientY - startY) / ph;
-    if (img) applyMaterialTransform(img, panel, panelEl);
+    mat.tx = origTx + (ev.clientX - startX) / pw;
+    mat.ty = origTy + (ev.clientY - startY) / ph;
+    if (img) applyMaterialTransform(img, panel, panelEl, idx);
   };
   const onUp = () => {
     document.body.style.cursor = '';
@@ -1006,7 +1021,7 @@ function renderPanels() {
       const hit = getEdgeFromPoint(el, p, e.clientX, e.clientY);
       if (hit && !hit.resizable) el.style.cursor = 'not-allowed';
       else if (hit) el.style.cursor = cursorForEdge(hit.edge);
-      else if (p.material) el.style.cursor = 'grab';
+      else if (p.materials && p.materials.length > 0) el.style.cursor = 'grab';
       else el.style.cursor = 'pointer';
     });
     el.addEventListener('mouseleave', () => { el.style.cursor = ''; });
@@ -1016,25 +1031,27 @@ function renderPanels() {
       const hit = getEdgeFromPoint(el, p, e.clientX, e.clientY);
       if (hit && hit.resizable) {
         startEdgeDrag(p, hit.edge, e);
-      } else if (p.material) {
+      } else if (p.materials && p.materials.length > 0) {
         startMaterialDrag(p, el, e);
       }
     });
     // ホイールで拡縮、Shift+ホイールで回転
     el.addEventListener('wheel', (e) => {
       if (p.id !== cur.selectedPanelId) return;
-      if (!p.material) return;
+      const idx = p.activeMaterialIdx || 0;
+      const mat = p.materials && p.materials[idx];
+      if (!mat) return;
       e.preventDefault();
       recordUndo();
-      const img = el.querySelector('.panel-material');
+      const img = el.querySelector(`.panel-material[data-mat-idx="${idx}"]`);
       if (e.shiftKey) {
         const step = e.deltaY < 0 ? -5 : 5;
-        p.material.rotation = ((p.material.rotation || 0) + step) % 360;
+        mat.rotation = ((mat.rotation || 0) + step) % 360;
       } else {
         const factor = e.deltaY < 0 ? 1.1 : 1 / 1.1;
-        p.material.scale = Math.max(0.1, Math.min(10, (p.material.scale || 1) * factor));
+        mat.scale = Math.max(0.1, Math.min(10, (mat.scale || 1) * factor));
       }
-      if (img) applyMaterialTransform(img, p, el);
+      if (img) applyMaterialTransform(img, p, el, idx);
     }, { passive: false });
     els.panelContainer.appendChild(el);
     mountMaterialOnPanel(el, p);
@@ -1070,11 +1087,37 @@ function updatePanelControls() {
   const hasSelection = sel != null;
   els.splitTopBottomBtn.disabled = !hasSelection;
   els.splitLeftRightBtn.disabled = !hasSelection;
+  const hasMaterial = sel && sel.materials && sel.materials.length > 0;
   // 画像がはめ込まれていれば「画像外し」が行えるので、コマ削除不可でもボタンは有効にする。
-  els.deletePanelBtn.disabled = !(sel && (sel.material || canDeletePanel(sel)));
-  els.panelMaterialProps.hidden = !(hasSelection && sel.material);
+  els.deletePanelBtn.disabled = !(sel && (hasMaterial || canDeletePanel(sel)));
+  els.panelMaterialProps.hidden = !hasSelection;
   els.panelFocusProps.hidden = !hasSelection;
+  updateMaterialList();
   updateFocusControls();
+}
+
+function updateMaterialList() {
+  const sel = getSelectedPanel();
+  if (!sel || !els.materialList) return;
+  els.materialList.innerHTML = '';
+  const mats = sel.materials || [];
+  mats.forEach((mat, idx) => {
+    const thumb = document.createElement('div');
+    thumb.className = 'material-thumb';
+    if (idx === (sel.activeMaterialIdx || 0)) thumb.classList.add('active');
+    const img = document.createElement('img');
+    img.src = mat.src;
+    img.draggable = false;
+    thumb.appendChild(img);
+    thumb.addEventListener('click', () => {
+      sel.activeMaterialIdx = idx;
+      updateMaterialList();
+    });
+    els.materialList.appendChild(thumb);
+  });
+  // ボタンの有効/無効
+  if (els.materialResetBtn) els.materialResetBtn.disabled = mats.length === 0;
+  if (els.materialRemoveBtn) els.materialRemoveBtn.disabled = mats.length === 0;
 }
 
 function getSelectedPanel() {
@@ -1131,12 +1174,14 @@ function deleteSelectedPanel() {
 function requestDeletePanel() {
   const panel = getSelectedPanel();
   if (!panel) return;
-  if (panel.material) {
+  if (panel.materials && panel.materials.length > 0) {
     recordUndo();
-    panel.material = null;
+    const idx = panel.activeMaterialIdx || 0;
+    panel.materials.splice(idx, 1);
+    panel.activeMaterialIdx = Math.max(0, Math.min(idx, panel.materials.length - 1));
     renderPanels();
+    updateMaterialList();
     updateActionButtons();
-    updateInspector();
     return;
   }
   if (!canDeletePanel(panel)) return;
@@ -1152,11 +1197,11 @@ function splitSelectedPanel(direction) {
   // 素材は元コマ（先頭側）にだけ引き継ぐ。もう一方は空のコマになる。
   let a, b;
   if (direction === 'topBottom') {
-    a = { id: cur.nextPanelId++, x: panel.x, y: panel.y,             w: panel.w, h: panel.h / 2, material: panel.material, focus: panel.focus };
-    b = { id: cur.nextPanelId++, x: panel.x, y: panel.y + panel.h / 2, w: panel.w, h: panel.h / 2, material: null, focus: null };
+    a = { id: cur.nextPanelId++, x: panel.x, y: panel.y,             w: panel.w, h: panel.h / 2, materials: clonePlain(panel.materials || []), activeMaterialIdx: panel.activeMaterialIdx || 0, focus: panel.focus };
+    b = { id: cur.nextPanelId++, x: panel.x, y: panel.y + panel.h / 2, w: panel.w, h: panel.h / 2, materials: [], activeMaterialIdx: 0, focus: null };
   } else {
-    a = { id: cur.nextPanelId++, x: panel.x,             y: panel.y, w: panel.w / 2, h: panel.h, material: panel.material, focus: panel.focus };
-    b = { id: cur.nextPanelId++, x: panel.x + panel.w / 2, y: panel.y, w: panel.w / 2, h: panel.h, material: null, focus: null };
+    a = { id: cur.nextPanelId++, x: panel.x,             y: panel.y, w: panel.w / 2, h: panel.h, materials: clonePlain(panel.materials || []), activeMaterialIdx: panel.activeMaterialIdx || 0, focus: panel.focus };
+    b = { id: cur.nextPanelId++, x: panel.x + panel.w / 2, y: panel.y, w: panel.w / 2, h: panel.h, materials: [], activeMaterialIdx: 0, focus: null };
   }
   cur.panels.splice(idx, 1, a, b);
   cur.selectedPanelId = a.id;
@@ -1172,7 +1217,8 @@ function applyTemplate(templateId) {
   cur.panels = tmpl.panels.map((p) => ({
     id: cur.nextPanelId++,
     x: p.x, y: p.y, w: p.w, h: p.h,
-    material: null,
+    materials: [],
+    activeMaterialIdx: 0,
     focus: null,
   }));
   cur.selectedPanelId = null;
@@ -1225,7 +1271,7 @@ els.insertPageBtn.addEventListener('click', insertPage);
 
 els.templateSelect.addEventListener('change', () => {
   const newTemplate = els.templateSelect.value;
-  if (newTemplate !== cur.template && cur.panels.some((p) => p.material)) {
+  if (newTemplate !== cur.template && cur.panels.some((p) => p.materials && p.materials.length > 0)) {
     if (!confirm('テンプレートを変更すると、各コマに配置した画像はすべて消えます。よろしいですか?')) {
       els.templateSelect.value = cur.template;
       return;
@@ -1274,8 +1320,10 @@ function applyCanvasSize(w, h) {
   for (const p of cur.panels) {
     const el = els.panelContainer.querySelector(`[data-panel-id="${p.id}"]`);
     if (!el) continue;
-    const img = el.querySelector('.panel-material');
-    if (img) applyMaterialTransform(img, p, el);
+    (p.materials || []).forEach((_, idx) => {
+      const img = el.querySelector(`.panel-material[data-mat-idx="${idx}"]`);
+      if (img) applyMaterialTransform(img, p, el, idx);
+    });
     const fimg = el.querySelector('.panel-focus');
     if (fimg) applyFocusTransform(fimg, p, el);
   }
@@ -1311,24 +1359,53 @@ els.deletePanelBtn.addEventListener('click', () => requestDeletePanel());
 
 els.materialResetBtn.addEventListener('click', () => {
   const sel = getSelectedPanel();
-  if (!sel || !sel.material) return;
+  if (!sel || !sel.materials || sel.materials.length === 0) return;
+  const idx = sel.activeMaterialIdx || 0;
+  const mat = sel.materials[idx];
+  if (!mat) return;
   recordUndo();
-  sel.material.tx = 0;
-  sel.material.ty = 0;
-  sel.material.scale = 1;
-  sel.material.rotation = 0;
+  mat.tx = 0;
+  mat.ty = 0;
+  mat.scale = 1;
+  mat.rotation = 0;
   const el = els.panelContainer.querySelector(`[data-panel-id="${sel.id}"]`);
-  const img = el && el.querySelector('.panel-material');
-  if (img) applyMaterialTransform(img, sel, el);
+  const img = el && el.querySelector(`.panel-material[data-mat-idx="${idx}"]`);
+  if (img) applyMaterialTransform(img, sel, el, idx);
 });
 
 els.materialRemoveBtn.addEventListener('click', () => {
   const sel = getSelectedPanel();
-  if (!sel || !sel.material) return;
+  if (!sel || !sel.materials || sel.materials.length === 0) return;
   recordUndo();
-  sel.material = null;
+  const idx = sel.activeMaterialIdx || 0;
+  sel.materials.splice(idx, 1);
+  sel.activeMaterialIdx = Math.max(0, Math.min(idx, sel.materials.length - 1));
   renderPanels();
+  updateMaterialList();
   updateActionButtons();
+});
+
+els.materialAddBtn.addEventListener('click', () => {
+  const sel = getSelectedPanel();
+  if (!sel) return;
+  els.materialAddFileInput.value = '';
+  els.materialAddFileInput.click();
+});
+
+els.materialAddFileInput.addEventListener('change', () => {
+  const file = els.materialAddFileInput.files && els.materialAddFileInput.files[0];
+  els.materialAddFileInput.value = '';
+  if (!file) return;
+  const sel = getSelectedPanel();
+  if (!sel) return;
+  if (detectFileKind(file) !== 'image') {
+    alert('画像ファイルを指定してください。');
+    return;
+  }
+  loadImageAsPanelMaterial(sel, file).catch((err) => {
+    console.error(err);
+    alert('画像の読み込みに失敗しました: ' + (err && err.message ? err.message : err));
+  });
 });
 
 applyPanelBorderWidth(Number(els.panelBorderInput.value));
@@ -2697,10 +2774,13 @@ function applyAllLayerStyles() {
 window.addEventListener('resize', () => {
   applyAllLayerStyles();
   for (const p of cur.panels) {
-    if (!p.material) continue;
+    if (!p.materials || p.materials.length === 0) continue;
     const el = els.panelContainer.querySelector(`[data-panel-id="${p.id}"]`);
-    const img = el && el.querySelector('.panel-material');
-    if (img) applyMaterialTransform(img, p, el);
+    if (!el) continue;
+    p.materials.forEach((_, idx) => {
+      const img = el.querySelector(`.panel-material[data-mat-idx="${idx}"]`);
+      if (img) applyMaterialTransform(img, p, el, idx);
+    });
   }
 });
 if (document.fonts && document.fonts.ready) {
@@ -3070,8 +3150,10 @@ async function drawPanelsAndMaterials(ctx, page, pageW, pageH) {
   const borderPx = borderCss * scale;
 
   // 素材画像と集中線画像を並列ロード
-  const materialImgs = await Promise.all(
-    page.panels.map((p) => (p.material ? loadImageElement(p.material.src).catch(() => null) : null))
+  const materialImgsArr = await Promise.all(
+    page.panels.map((p) =>
+      Promise.all((p.materials || []).map((m) => loadImageElement(m.src).catch(() => null)))
+    )
   );
   const focusImgs = await Promise.all(
     page.panels.map((p) => (p.focus ? loadImageForCanvas(p.focus.src).catch(() => null) : null))
@@ -3081,18 +3163,25 @@ async function drawPanelsAndMaterials(ctx, page, pageW, pageH) {
     const rect = computePanelPixelRect(p, pageW, pageH, gutterPx);
     if (rect.w <= 0 || rect.h <= 0) return;
 
-    // 素材描画は枠の内側にクリップ
-    if (p.material && materialImgs[i]) {
+    // 素材描画は枠の内側にクリップ（重ね順に描画）
+    const mats = p.materials || [];
+    const imgs = materialImgsArr[i] || [];
+    if (mats.length > 0) {
       ctx.save();
       ctx.beginPath();
       ctx.rect(rect.x, rect.y, rect.w, rect.h);
       ctx.clip();
-      const place = computeMaterialPlacement(p.material, rect.w, rect.h);
-      if (place) {
-        ctx.translate(rect.x + place.cx, rect.y + place.cy);
-        ctx.rotate((place.rotation * Math.PI) / 180);
-        ctx.drawImage(materialImgs[i], -place.finalW / 2, -place.finalH / 2, place.finalW, place.finalH);
-      }
+      mats.forEach((mat, midx) => {
+        if (!imgs[midx]) return;
+        const place = computeMaterialPlacement(mat, rect.w, rect.h);
+        if (place) {
+          ctx.save();
+          ctx.translate(rect.x + place.cx, rect.y + place.cy);
+          ctx.rotate((place.rotation * Math.PI) / 180);
+          ctx.drawImage(imgs[midx], -place.finalW / 2, -place.finalH / 2, place.finalW, place.finalH);
+          ctx.restore();
+        }
+      });
       ctx.restore();
     }
 
@@ -3661,20 +3750,24 @@ async function buildBundleBlob() {
       canvasWidth: page.canvasWidth,
       canvasHeight: page.canvasHeight,
       panels: page.panels.map((p) => {
-        const out = { id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, material: null, focus: null };
-        if (p.material) {
-          const blob = dataUrlToBlob(p.material.src);
-          const ext = extFromMime(blob.type);
-          const file = `materials/${p.id}${ext}`;
-          zip.file(`pages/${idx}/${file}`, blob);
-          out.material = {
-            file,
-            naturalWidth: p.material.naturalWidth,
-            naturalHeight: p.material.naturalHeight,
-            tx: p.material.tx, ty: p.material.ty,
-            scale: p.material.scale, rotation: p.material.rotation,
-          };
-        }
+        const out = { id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, materials: [], activeMaterialIdx: p.activeMaterialIdx || 0, focus: null };
+        (p.materials || []).forEach((mat, midx) => {
+          try {
+            const blob = dataUrlToBlob(mat.src);
+            const ext = extFromMime(blob.type);
+            const file = `materials/${p.id}_${midx}${ext}`;
+            zip.file(`pages/${idx}/${file}`, blob);
+            out.materials.push({
+              file,
+              naturalWidth: mat.naturalWidth,
+              naturalHeight: mat.naturalHeight,
+              tx: mat.tx, ty: mat.ty,
+              scale: mat.scale, rotation: mat.rotation,
+            });
+          } catch (err) {
+            console.warn(`コマ ${p.id} 素材 ${midx} の書き出しに失敗:`, err);
+          }
+        });
         if (p.focus) {
           // 集中線は同梱アセット由来。src(アセットパス)・scale・rotation のみ保存する。
           out.focus = {
@@ -3780,20 +3873,25 @@ async function loadPageFromBundle(pageIndex, entries) {
       if (typeof data.canvasHeight === 'number') page.canvasHeight = data.canvasHeight;
       page.panels = [];
       for (const p of (data.panels || [])) {
-        const panel = { id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, material: null, focus: null };
-        if (p.material) {
-          const matEntry = materialEntries[p.id];
-          if (matEntry) {
-            const blob = await matEntry.async('blob');
-            const dataUrl = await blobToDataUrl(blob);
-            panel.material = {
-              src: dataUrl,
-              naturalWidth: p.material.naturalWidth || 0,
-              naturalHeight: p.material.naturalHeight || 0,
-              tx: p.material.tx || 0, ty: p.material.ty || 0,
-              scale: p.material.scale || 1, rotation: p.material.rotation || 0,
-            };
-          }
+        const panel = { id: p.id, x: p.x, y: p.y, w: p.w, h: p.h, materials: [], activeMaterialIdx: p.activeMaterialIdx || 0, focus: null };
+        // 旧形式 (material: {}) を配列に変換して読み込む
+        const rawMaterials = Array.isArray(p.materials) ? p.materials
+          : (p.material ? [p.material] : []);
+        for (let midx = 0; midx < rawMaterials.length; midx++) {
+          const mdata = rawMaterials[midx];
+          if (!mdata || !mdata.file) continue;
+          // まず新形式キー (panelId_midx) で探し、なければ旧形式 (panelId) で探す
+          const matEntry = materialEntries[`${p.id}_${midx}`] || materialEntries[p.id];
+          if (!matEntry) continue;
+          const blob = await matEntry.async('blob');
+          const dataUrl = await blobToDataUrl(blob);
+          panel.materials.push({
+            src: dataUrl,
+            naturalWidth: mdata.naturalWidth || 0,
+            naturalHeight: mdata.naturalHeight || 0,
+            tx: mdata.tx || 0, ty: mdata.ty || 0,
+            scale: mdata.scale || 1, rotation: mdata.rotation || 0,
+          });
         }
         if (p.focus && typeof p.focus.src === 'string' && FOCUS_CATALOG.some((c) => c.src === p.focus.src)) {
           panel.focus = {
@@ -3809,7 +3907,8 @@ async function loadPageFromBundle(pageIndex, entries) {
         page.panels = TEMPLATES[DEFAULT_TEMPLATE].panels.map((p) => ({
           id: page.nextPanelId++,
           x: p.x, y: p.y, w: p.w, h: p.h,
-          material: null,
+          materials: [],
+          activeMaterialIdx: 0,
           focus: null,
         }));
       }
@@ -3860,9 +3959,11 @@ async function loadBundleFile(file, handle = null) {
     const idx = parseInt(m[1], 10) - 1;
     if (idx < 0 || idx >= MAX_PAGES) return;
     const name = m[2];
-    const matM = name.match(/^materials\/(\d+)\.[a-z0-9]+$/i);
+    const matM = name.match(/^materials\/(\d+(?:_\d+)?)\.[a-z0-9]+$/i);
     if (matM) {
-      pageEntries[idx].materialEntries[parseInt(matM[1], 10)] = entry;
+      // 新形式: panelId_matIdx / 旧形式: panelId (数値のみ)
+      const key = /^\d+$/.test(matM[1]) ? parseInt(matM[1], 10) : matM[1];
+      pageEntries[idx].materialEntries[key] = entry;
       return;
     }
     // overlays/<layerId>.<ext> は text.json の {file: ...} と突き合わせるため
@@ -4295,7 +4396,9 @@ function resetAiDialogOutput() {
 }
 
 function openAiDialogForPanel(panel) {
-  if (!panel?.material) {
+  const idx = panel?.activeMaterialIdx || 0;
+  const mat = panel?.materials && panel.materials[idx];
+  if (!mat) {
     alert('素材が設定されていません。まずコマに画像を配置してください。');
     return;
   }
@@ -4304,7 +4407,7 @@ function openAiDialogForPanel(panel) {
   aiDialogState.resultDataUrl = null;
   els.aiDialogTitle.textContent = 'AI でコマ画像を微調整';
   els.aiInputPreview.hidden = false;
-  els.aiInputImg.src = panel.material.src;
+  els.aiInputImg.src = mat.src;
   els.aiPromptInput.placeholder = '例: 夜のシーンにして / もっとダークな雰囲気に / 雨の効果を加えて';
   syncAiModelSelect();
   resetAiDialogOutput();
@@ -4348,7 +4451,8 @@ els.aiGenerateBtn.addEventListener('click', async () => {
     let fullPrompt;
     let inputImage = null;
     if (aiDialogState.mode === 'panel') {
-      inputImage = aiDialogState.targetPanel?.material?.src || null;
+      const _aiIdx = aiDialogState.targetPanel?.activeMaterialIdx || 0;
+      inputImage = aiDialogState.targetPanel?.materials?.[_aiIdx]?.src || null;
       fullPrompt = prompt;
     } else {
       fullPrompt = `漫画の吹き出し。${prompt}。白い塗りつぶし、黒いアウトライン、白い背景。テキストや文字を含めないこと。`;
@@ -4376,9 +4480,17 @@ els.aiApplyBtn.addEventListener('click', async () => {
     if (!panel) return;
     const sz = await getImageNaturalSize(dataUrl);
     recordUndo();
-    panel.material = { src: dataUrl, naturalWidth: sz.width, naturalHeight: sz.height, tx: 0, ty: 0, scale: 1, rotation: 0 };
+    if (!panel.materials) panel.materials = [];
+    const _applyIdx = panel.activeMaterialIdx || 0;
+    if (_applyIdx < panel.materials.length) {
+      panel.materials[_applyIdx] = { src: dataUrl, naturalWidth: sz.width, naturalHeight: sz.height, tx: 0, ty: 0, scale: 1, rotation: 0 };
+    } else {
+      panel.materials.push({ src: dataUrl, naturalWidth: sz.width, naturalHeight: sz.height, tx: 0, ty: 0, scale: 1, rotation: 0 });
+      panel.activeMaterialIdx = panel.materials.length - 1;
+    }
     cur.selectedPanelId = panel.id;
     renderPanels();
+    updateMaterialList();
     updateActionButtons();
   } else if (aiDialogState.mode === 'bubble') {
     const coords = aiDialogState.targetCoords || { x: cur.canvasWidth / 2, y: cur.canvasHeight / 2 };

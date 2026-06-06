@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gina 20260531-06</title>
+  <title>Gina 20260606-01</title>
   <link rel="stylesheet" href="styles/style.css" />
 </head>
 <body>
@@ -93,7 +93,8 @@
           <li><span>ホイール</span><strong>素材や吹き出しを拡縮します</strong></li>
           <li><span>Shift + ホイール</span><strong>コマ内の素材を回転します</strong></li>
           <li><span>四隅のハンドル</span><strong>上重ね画像や吹き出しをリサイズします</strong></li>
-          <li><span>画像を外す</span><strong>選択中のコマから素材を取り除きます</strong></li>
+          <li><span>画像を追加</span><strong>選択中のコマに素材を重ねて追加します</strong></li>
+          <li><span>この画像を外す</span><strong>選択中の素材をコマから取り除きます</strong></li>
         </ul>
       </section>
 
@@ -255,13 +256,18 @@
 
       <div class="inspector-section" id="panelMaterialProps" hidden>
         <h2>素材の操作</h2>
+        <div id="materialList" class="material-list"></div>
+        <div class="field-row">
+          <button id="materialAddBtn" class="btn btn-secondary">画像を追加</button>
+        </div>
         <div class="field-row">
           <button id="materialResetBtn" class="btn">位置をリセット</button>
-          <button id="materialRemoveBtn" class="btn btn-danger">画像を外す</button>
+          <button id="materialRemoveBtn" class="btn btn-danger">この画像を外す</button>
         </div>
         <div class="field-row">
           <button id="aiTunePanelBtn" class="btn">AI で微調整...</button>
         </div>
+        <input type="file" id="materialAddFileInput" accept="image/*" hidden />
       </div>
 
       <div class="inspector-section" id="panelFocusProps" hidden>

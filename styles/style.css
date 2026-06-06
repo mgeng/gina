@@ -278,6 +278,42 @@ header h1 {
   max-width: none;
 }
 
+.material-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.material-thumb {
+  width: 44px;
+  height: 44px;
+  border: 2px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  background: var(--surface-alt);
+  position: relative;
+  flex-shrink: 0;
+}
+
+.material-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+  display: block;
+}
+
+.material-thumb.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.material-thumb:hover:not(.active) {
+  border-color: var(--accent-hover);
+}
+
 /* 集中線。コマ素材 (.panel-material) の上、レイヤー (吹き出し/テキスト) より下に重なる。
    .panel の overflow: hidden により枠外は自動でトリミングされる。
    素材の黒地は乗算合成で透過させ、線だけがコマ素材の上に乗るようにする。 */
@@ -836,6 +872,11 @@ body.theme-dark .help-body kbd {
 
 body.theme-dark .bubble-picker,
 body.theme-dark .bubble-thumb {
+  background: var(--surface-muted);
+  border-color: var(--border);
+}
+
+body.theme-dark .material-thumb {
   background: var(--surface-muted);
   border-color: var(--border);
 }
