@@ -1679,8 +1679,8 @@ els.contextMenu.addEventListener('click', (e) => {
     pendingPanelOverlay = { coords: { ...contextMenuTargetCoords }, panelId: panel.id };
     els.panelOverlayFileInput.value = '';
     els.panelOverlayFileInput.click();
-  } else if (action === 'add-ai-bubble') {
-    openAiDialogForBubble({ ...contextMenuTargetCoords });
+  } else if (action === 'add-ai-image') {
+    openAiDialogForImageGen({ ...contextMenuTargetCoords });
   }
 });
 
@@ -4411,21 +4411,32 @@ function openAiDialogForPanel(panel) {
   els.aiPromptInput.placeholder = '例: 夜のシーンにして / もっとダークな雰囲気に / 雨の効果を加えて';
   syncAiModelSelect();
   resetAiDialogOutput();
+  warnIfNoApiKey();
   els.aiDialog.hidden = false;
   els.aiPromptInput.focus();
 }
 
-function openAiDialogForBubble(coords) {
-  aiDialogState.mode = 'bubble';
+
+function warnIfNoApiKey() {
+  if (!getGeminiApiKey()) {
+    els.aiStatus.textContent = '⚠ Gemini API Key が未設定です。設定画面（右パネル「AI（Gemini）」）から設定してください。';
+    els.aiStatus.hidden = false;
+    els.aiGenerateBtn.disabled = true;
+  }
+}
+
+function openAiDialogForImageGen(coords) {
+  aiDialogState.mode = 'image-gen';
   aiDialogState.targetPanel = null;
   aiDialogState.targetCoords = coords;
   aiDialogState.resultDataUrl = null;
-  els.aiDialogTitle.textContent = 'AI で吹き出しを生成';
+  els.aiDialogTitle.textContent = 'AI で画像を生成';
   els.aiInputPreview.hidden = true;
   els.aiInputImg.src = '';
-  els.aiPromptInput.placeholder = '例: ギザギザした怒りの吹き出し / 丸くてかわいい吹き出し / 大きなテール付き吹き出し';
+  els.aiPromptInput.placeholder = '例: 夕焼けの街並み / 森の中の小屋 / サイバーパンクな夜景';
   syncAiModelSelect();
   resetAiDialogOutput();
+  warnIfNoApiKey();
   els.aiDialog.hidden = false;
   els.aiPromptInput.focus();
 }
@@ -4434,6 +4445,7 @@ function closeAiDialog() {
   els.aiDialog.hidden = true;
   aiDialogState.mode = null;
   aiDialogState.targetPanel = null;
+  aiDialogState.targetCoords = null;
   aiDialogState.resultDataUrl = null;
 }
 
@@ -4454,8 +4466,8 @@ els.aiGenerateBtn.addEventListener('click', async () => {
       const _aiIdx = aiDialogState.targetPanel?.activeMaterialIdx || 0;
       inputImage = aiDialogState.targetPanel?.materials?.[_aiIdx]?.src || null;
       fullPrompt = prompt;
-    } else {
-      fullPrompt = `漫画の吹き出し。${prompt}。白い塗りつぶし、黒いアウトライン、白い背景。テキストや文字を含めないこと。`;
+    } else if (aiDialogState.mode === 'image-gen') {
+      fullPrompt = prompt;
     }
     const dataUrl = await callGeminiImageGeneration(fullPrompt, inputImage);
     aiDialogState.resultDataUrl = dataUrl;
@@ -4492,7 +4504,7 @@ els.aiApplyBtn.addEventListener('click', async () => {
     renderPanels();
     updateMaterialList();
     updateActionButtons();
-  } else if (aiDialogState.mode === 'bubble') {
+  } else if (aiDialogState.mode === 'image-gen') {
     const coords = aiDialogState.targetCoords || { x: cur.canvasWidth / 2, y: cur.canvasHeight / 2 };
     const sz = await getImageNaturalSize(dataUrl);
     const w = cur.canvasWidth * 0.4;
