@@ -4427,7 +4427,7 @@ function warnIfNoApiKey() {
 
 function openAiDialogForImageGen(coords) {
   aiDialogState.mode = 'image-gen';
-  aiDialogState.targetPanel = null;
+  aiDialogState.targetPanel = findPanelAtCanvasCoords(coords.x, coords.y) || null;
   aiDialogState.targetCoords = coords;
   aiDialogState.resultDataUrl = null;
   els.aiDialogTitle.textContent = 'AI で画像を生成';
@@ -4505,11 +4505,28 @@ els.aiApplyBtn.addEventListener('click', async () => {
     updateMaterialList();
     updateActionButtons();
   } else if (aiDialogState.mode === 'image-gen') {
-    const coords = aiDialogState.targetCoords || { x: cur.canvasWidth / 2, y: cur.canvasHeight / 2 };
     const sz = await getImageNaturalSize(dataUrl);
-    const w = cur.canvasWidth * 0.4;
-    const h = sz.width > 0 ? w * (sz.height / sz.width) : w;
-    addOverlayLayer({ x: coords.x - w / 2, y: coords.y - h / 2, src: dataUrl, width: w, height: h, naturalWidth: sz.width, naturalHeight: sz.height });
+    const panel = aiDialogState.targetPanel;
+    if (panel) {
+      recordUndo();
+      if (!panel.materials) panel.materials = [];
+      const _applyIdx = panel.activeMaterialIdx || 0;
+      if (_applyIdx < panel.materials.length) {
+        panel.materials[_applyIdx] = { src: dataUrl, naturalWidth: sz.width, naturalHeight: sz.height, tx: 0, ty: 0, scale: 1, rotation: 0 };
+      } else {
+        panel.materials.push({ src: dataUrl, naturalWidth: sz.width, naturalHeight: sz.height, tx: 0, ty: 0, scale: 1, rotation: 0 });
+        panel.activeMaterialIdx = panel.materials.length - 1;
+      }
+      cur.selectedPanelId = panel.id;
+      renderPanels();
+      updateMaterialList();
+      updateActionButtons();
+    } else {
+      const coords = aiDialogState.targetCoords || { x: cur.canvasWidth / 2, y: cur.canvasHeight / 2 };
+      const w = cur.canvasWidth * 0.4;
+      const h = sz.width > 0 ? w * (sz.height / sz.width) : w;
+      addOverlayLayer({ x: coords.x - w / 2, y: coords.y - h / 2, src: dataUrl, width: w, height: h, naturalWidth: sz.width, naturalHeight: sz.height });
+    }
   }
   closeAiDialog();
 });
