@@ -1,0 +1,31 @@
+{
+  "name": "gina",
+  "version": "1.0.0",
+  "description": "ブラウザだけで動く、軽量な漫画オーサリングツールです。 コマ割り・素材画像の配置・吹き出し・テキスト入力までを 1 ページで完結させ、 プロジェクトファイル (`.mj`) として保存したり、PNG として書き出したりできます。",
+  "main": "index.js",
+  "bin": {
+    "gina-render": "./bin/gina-render.js"
+  },
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mgeng/MojiUchi.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/mgeng/MojiUchi/issues"
+  },
+  "homepage": "https://github.com/mgeng/MojiUchi#readme",
+  "dependencies": {
+    "canvas": "^3.2.3",
+    "pixelmatch": "^7.2.0",
+    "pngjs": "^7.0.0"
+  }
+}
