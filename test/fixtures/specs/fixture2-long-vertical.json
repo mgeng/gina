@@ -1,0 +1,19 @@
+{
+  "version": "0.1",
+  "output": "../output/fixture2-long-vertical.png",
+  "canvas": { "width": 800, "height": 700 },
+  "elements": [
+    {
+      "type": "bubble",
+      "id": "b1",
+      "text": "これは非常に長いセリフです。\n複数の列にわたって\n縦書きで表示され、\n改行処理が正しく\n動作するかを確認します。",
+      "x": 200,
+      "y": 80,
+      "shape": "normal",
+      "writing": "vertical",
+      "font": "GenEiAntiquePv6",
+      "fontSize": 24,
+      "lineHeight": 1.15
+    }
+  ]
+}

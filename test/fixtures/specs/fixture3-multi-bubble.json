@@ -1,0 +1,43 @@
+{
+  "version": "0.1",
+  "output": "../output/fixture3-multi-bubble.png",
+  "canvas": { "width": 1200, "height": 900 },
+  "elements": [
+    {
+      "type": "bubble",
+      "id": "b1",
+      "text": "左上の\nフキダシ",
+      "x": 80,
+      "y": 60,
+      "shape": "normal",
+      "writing": "vertical",
+      "font": "GenEiAntiquePv6",
+      "fontSize": 28,
+      "lineHeight": 1.1
+    },
+    {
+      "type": "bubble",
+      "id": "b2",
+      "text": "中央の\nセリフです",
+      "x": 500,
+      "y": 350,
+      "shape": "normal",
+      "writing": "vertical",
+      "font": "ChikaraDzuyoku",
+      "fontSize": 30,
+      "lineHeight": 1.2
+    },
+    {
+      "type": "bubble",
+      "id": "b3",
+      "text": "右下の\nフキダシ",
+      "x": 900,
+      "y": 650,
+      "shape": "normal",
+      "writing": "vertical",
+      "font": "GenEiAntiqueNv6",
+      "fontSize": 26,
+      "lineHeight": 1.1
+    }
+  ]
+}

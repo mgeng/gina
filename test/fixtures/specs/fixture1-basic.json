@@ -1,0 +1,19 @@
+{
+  "version": "0.1",
+  "output": "../output/fixture1-basic.png",
+  "canvas": { "width": 600, "height": 500 },
+  "elements": [
+    {
+      "type": "bubble",
+      "id": "b1",
+      "text": "おはよう！",
+      "x": 150,
+      "y": 100,
+      "shape": "normal",
+      "writing": "vertical",
+      "font": "GenEiAntiquePv6",
+      "fontSize": 32,
+      "lineHeight": 1.1
+    }
+  ]
+}
