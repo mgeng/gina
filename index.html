@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gina 20260606-01</title>
+  <title>Gina 20260622-01</title>
   <link rel="stylesheet" href="styles/style.css" />
 </head>
 <body>
@@ -334,6 +334,47 @@
           <span>行間 <small id="propLineHeightValue">1.1</small></span>
           <input type="range" id="propLineHeight" min="0.8" max="2.0" step="0.05" value="1.1" />
         </label>
+
+        <div class="field text-color-field">
+          <span>文字色</span>
+          <div class="color-row">
+            <input type="color" id="propColor" value="#000000" />
+            <div class="color-swatches" id="propColorSwatches"></div>
+          </div>
+        </div>
+
+        <div class="field text-effect-field">
+          <label class="effect-head">
+            <input type="checkbox" id="propGradientEnabled" />
+            <span>グラデーション</span>
+          </label>
+          <div id="propGradientControls" class="effect-controls" hidden>
+            <div class="color-row">
+              <label class="mini-field"><small>開始色</small><input type="color" id="propGradientFrom" value="#ff3366" /></label>
+              <label class="mini-field"><small>終了色</small><input type="color" id="propGradientTo" value="#3366ff" /></label>
+            </div>
+            <label class="field">
+              <span>角度 <small id="propGradientAngleValue">90</small>°</span>
+              <input type="range" id="propGradientAngle" min="0" max="360" step="5" value="90" />
+            </label>
+          </div>
+        </div>
+
+        <div class="field text-effect-field">
+          <label class="effect-head">
+            <input type="checkbox" id="propGlowEnabled" />
+            <span>グロー（発光）</span>
+          </label>
+          <div id="propGlowControls" class="effect-controls" hidden>
+            <div class="color-row">
+              <label class="mini-field"><small>発光色</small><input type="color" id="propGlowColor" value="#ffffff" /></label>
+            </div>
+            <label class="field">
+              <span>強さ <small id="propGlowBlurValue">12</small>px</span>
+              <input type="range" id="propGlowBlur" min="1" max="60" step="1" value="12" />
+            </label>
+          </div>
+        </div>
 
         <div class="field-row">
           <button id="propDelete" class="btn btn-danger">このテキストを削除</button>

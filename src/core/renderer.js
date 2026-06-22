@@ -17,6 +17,11 @@ const FONTS = [
   { name: 'GenEiAntiquePv6', file: 'assets/fonts/GenEiAntiquePv6-M.ttf' },
   { name: 'GenEiAntiqueNv6', file: 'assets/fonts/GenEiAntiqueNv6-M.ttf' },
   { name: 'ChikaraDzuyoku', file: 'assets/fonts/851CHIKARA-DZUYOKU_kanaA_004.ttf' },
+  // 表紙カバー向け(SIL OFL / 商用利用可)
+  { name: 'DelaGothicOne', file: 'assets/fonts/DelaGothicOne-Regular.ttf' },
+  { name: 'RocknRollOne', file: 'assets/fonts/RocknRollOne-Regular.ttf' },
+  { name: 'ShipporiMinchoB', file: 'assets/fonts/ShipporiMincho-Bold.ttf' },
+  { name: 'YujiSyuku', file: 'assets/fonts/YujiSyuku-Regular.ttf' },
 ];
 
 // --- フキダシ定数 (src/main.js と同値) ---
@@ -38,9 +43,32 @@ function splitTextLines(text) {
   return String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 }
 
+// グローを重ねる回数。多いほど発光が強くなる。src/main.js と同値。
+const GLOW_PASSES = 3;
+
 function setupTextContext(ctx, layer) {
-  ctx.fillStyle = '#000';
+  ctx.fillStyle = layer.color || '#000';
   ctx.font = `${layer.size}px "${layer.font}", sans-serif`;
+}
+
+// 本文の塗り(単色 or グラデーション)を ctx.fillStyle に設定する。src/main.js と同一ロジック。
+function applyTextFillStyle(ctx, layer) {
+  const g = layer.gradient;
+  if (g && g.from && g.to) {
+    const b = measureTextLayerBounds(layer);
+    const angle = ((typeof g.angle === 'number' ? g.angle : 90) * Math.PI) / 180;
+    const cx = layer.x + b.x + b.width / 2;
+    const cy = layer.y + b.y + b.height / 2;
+    const half = Math.max(b.width, b.height) / 2 || layer.size / 2;
+    const dx = Math.cos(angle) * half;
+    const dy = Math.sin(angle) * half;
+    const grad = ctx.createLinearGradient(cx - dx, cy - dy, cx + dx, cy + dy);
+    grad.addColorStop(0, g.from);
+    grad.addColorStop(1, g.to);
+    ctx.fillStyle = grad;
+  } else {
+    ctx.fillStyle = layer.color || '#000';
+  }
 }
 
 function getVerticalGlyphOffset(char, size) {
@@ -133,8 +161,11 @@ function computeBubbleShape(layer) {
   const halfH = textRect.height / 2 + BUBBLE_PADDING_Y;
   const rx = Math.max(halfW * Math.SQRT2, BUBBLE_MIN_RX);
   const ry = Math.max(halfH * Math.SQRT2, BUBBLE_MIN_RY);
-  const tipX = cx + BUBBLE_TAIL_OFFSET_X;
-  const tipY = cy + BUBBLE_TAIL_OFFSET_Y;
+  // Per-element tail direction (spec: tailOffsetX/Y). Defaults point down; Y auto-scales with bubble size.
+  const tailOffX = typeof layer.tailOffsetX === 'number' ? layer.tailOffsetX : BUBBLE_TAIL_OFFSET_X;
+  const tailOffY = typeof layer.tailOffsetY === 'number' ? layer.tailOffsetY : Math.max(ry * 1.6, BUBBLE_TAIL_OFFSET_Y);
+  const tipX = cx + tailOffX;
+  const tipY = cy + tailOffY;
   const tipAngle = Math.atan2((tipY - cy) * rx, (tipX - cx) * ry);
   return { cx, cy, rx, ry, tipX, tipY, tipAngle };
 }
@@ -183,8 +214,28 @@ function drawHorizontalTextLayer(ctx, layer) {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   const lineAdvance = layer.size * layer.lineHeight;
-  splitTextLines(layer.text).forEach((line, index) => {
-    ctx.fillText(line, layer.x, layer.y + lineAdvance * index);
+  const lines = splitTextLines(layer.text);
+  // グロー(発光)を下地に描く
+  if (layer.glow && layer.glow.blur > 0) {
+    ctx.save();
+    ctx.shadowColor = layer.glow.color || '#ffffff';
+    ctx.shadowBlur = layer.glow.blur;
+    ctx.fillStyle = layer.glow.color || '#ffffff';
+    for (let pass = 0; pass < GLOW_PASSES; pass++) {
+      lines.forEach((line, index) => ctx.fillText(line, layer.x, layer.y + lineAdvance * index));
+    }
+    ctx.restore();
+  }
+  applyTextFillStyle(ctx, layer);
+  lines.forEach((line, index) => {
+    const tx = layer.x, ty = layer.y + lineAdvance * index;
+    if (layer.strokeWidth) {
+      ctx.lineWidth = layer.strokeWidth;
+      ctx.strokeStyle = layer.strokeColor || '#000';
+      ctx.lineJoin = 'round';
+      ctx.strokeText(line, tx, ty);
+    }
+    ctx.fillText(line, tx, ty);
   });
 }
 
@@ -194,12 +245,25 @@ function drawVerticalTextLayer(ctx, layer) {
   ctx.textBaseline = 'top';
   const charAdvance = layer.size * layer.lineHeight;
   const columnAdvance = layer.size * layer.lineHeight;
-  splitTextLines(layer.text).forEach((column, columnIndex) => {
-    const x = layer.x + layer.size / 2 - columnAdvance * columnIndex;
-    for (const [charIndex, char] of [...column].entries()) {
-      drawVerticalGlyph(ctx, char, x, layer.y + charAdvance * charIndex, layer.size);
-    }
-  });
+  const columns = splitTextLines(layer.text);
+  const drawAll = () => {
+    columns.forEach((column, columnIndex) => {
+      const x = layer.x + layer.size / 2 - columnAdvance * columnIndex;
+      for (const [charIndex, char] of [...column].entries()) {
+        drawVerticalGlyph(ctx, char, x, layer.y + charAdvance * charIndex, layer.size);
+      }
+    });
+  };
+  if (layer.glow && layer.glow.blur > 0) {
+    ctx.save();
+    ctx.shadowColor = layer.glow.color || '#ffffff';
+    ctx.shadowBlur = layer.glow.blur;
+    ctx.fillStyle = layer.glow.color || '#ffffff';
+    for (let pass = 0; pass < GLOW_PASSES; pass++) drawAll();
+    ctx.restore();
+  }
+  applyTextFillStyle(ctx, layer);
+  drawAll();
 }
 
 function drawTextLayer(ctx, layer) {
@@ -246,6 +310,8 @@ function specElementToLayer(el, index) {
       size,
       lineHeight,
       orientation,
+      tailOffsetX: typeof el.tailOffsetX === 'number' ? el.tailOffsetX : undefined,
+      tailOffsetY: typeof el.tailOffsetY === 'number' ? el.tailOffsetY : undefined,
     };
   }
   if (el.type === 'monologue') {
@@ -272,6 +338,15 @@ function specElementToLayer(el, index) {
     size,
     lineHeight,
     orientation,
+    color: el.color || undefined,
+    strokeColor: el.strokeColor || undefined,
+    strokeWidth: typeof el.strokeWidth === 'number' ? el.strokeWidth : undefined,
+    glow: (el.glow && typeof el.glow === 'object' && el.glow.blur > 0)
+      ? { color: el.glow.color || '#ffffff', blur: Number(el.glow.blur) }
+      : undefined,
+    gradient: (el.gradient && el.gradient.from && el.gradient.to)
+      ? { from: el.gradient.from, to: el.gradient.to, angle: typeof el.gradient.angle === 'number' ? el.gradient.angle : 90 }
+      : undefined,
   };
 }
 

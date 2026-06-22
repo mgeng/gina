@@ -17,6 +17,27 @@ const FONTS = [
     label: '851チカラヅヨク かなA',
     file: 'assets/fonts/851CHIKARA-DZUYOKU_kanaA_004.ttf',
   },
+  // --- 表紙カバー向け(SIL OFL / 商用利用可) ---
+  {
+    name: 'DelaGothicOne',
+    label: 'Dela Gothic One（極太見出し）',
+    file: 'assets/fonts/DelaGothicOne-Regular.ttf',
+  },
+  {
+    name: 'RocknRollOne',
+    label: 'RocknRoll One（丸太ゴシック）',
+    file: 'assets/fonts/RocknRollOne-Regular.ttf',
+  },
+  {
+    name: 'ShipporiMinchoB',
+    label: 'しっぽり明朝 B（上品な明朝）',
+    file: 'assets/fonts/ShipporiMincho-Bold.ttf',
+  },
+  {
+    name: 'YujiSyuku',
+    label: 'Yuji Syuku（筆書き楷書）',
+    file: 'assets/fonts/YujiSyuku-Regular.ttf',
+  },
 ];
 
 const FONT_FILES = Object.fromEntries(FONTS.map((f) => [f.name, f.file]));
@@ -75,6 +96,19 @@ const els = {
   propOrientation: document.getElementById('propOrientation'),
   propLineHeight: document.getElementById('propLineHeight'),
   propLineHeightValue: document.getElementById('propLineHeightValue'),
+  propColor: document.getElementById('propColor'),
+  propColorSwatches: document.getElementById('propColorSwatches'),
+  propGradientEnabled: document.getElementById('propGradientEnabled'),
+  propGradientControls: document.getElementById('propGradientControls'),
+  propGradientFrom: document.getElementById('propGradientFrom'),
+  propGradientTo: document.getElementById('propGradientTo'),
+  propGradientAngle: document.getElementById('propGradientAngle'),
+  propGradientAngleValue: document.getElementById('propGradientAngleValue'),
+  propGlowEnabled: document.getElementById('propGlowEnabled'),
+  propGlowControls: document.getElementById('propGlowControls'),
+  propGlowColor: document.getElementById('propGlowColor'),
+  propGlowBlur: document.getElementById('propGlowBlur'),
+  propGlowBlurValue: document.getElementById('propGlowBlurValue'),
   propDelete: document.getElementById('propDelete'),
   stickerProps: document.getElementById('stickerProps'),
   stickerTitle: document.getElementById('stickerTitle'),
@@ -498,6 +532,9 @@ function snapshotLayer(layer) {
     orientation: layer.orientation,
     lineHeight: layer.lineHeight,
     parentStickerId: layer.parentStickerId || null,
+    color: layer.color || '#000000',
+    glow: layer.glow ? { ...layer.glow } : null,
+    gradient: layer.gradient ? { ...layer.gradient } : null,
   };
 }
 
@@ -1845,7 +1882,26 @@ document.addEventListener('keydown', (e) => {
 
 // === Layers — Add (Text / Sticker / Overlay) ===
 
-function addTextLayer({ id: requestedId, x, y, text = 'テキスト', font, size, orientation, lineHeight, kind = 'text', parentStickerId = null }, targetPage = cur) {
+// グロー設定を正規化する。無効なら null。
+function normalizeGlow(glow) {
+  if (!glow || typeof glow !== 'object') return null;
+  const blur = Number(glow.blur);
+  if (!(blur > 0)) return null;
+  return { color: glow.color || '#ffffff', blur };
+}
+
+// グラデーション設定を正規化する。両端の色が揃っていなければ null。
+function normalizeGradient(gradient) {
+  if (!gradient || typeof gradient !== 'object') return null;
+  if (!gradient.from || !gradient.to) return null;
+  return {
+    from: gradient.from,
+    to: gradient.to,
+    angle: typeof gradient.angle === 'number' ? gradient.angle : 90,
+  };
+}
+
+function addTextLayer({ id: requestedId, x, y, text = 'テキスト', font, size, orientation, lineHeight, kind = 'text', parentStickerId = null, color, glow, gradient }, targetPage = cur) {
   recordUndo();
   const id = Number.isFinite(requestedId) ? requestedId : targetPage.nextId++;
   targetPage.nextId = Math.max(targetPage.nextId, id + 1);
@@ -1860,6 +1916,9 @@ function addTextLayer({ id: requestedId, x, y, text = 'テキスト', font, size
     lineHeight: lineHeight ?? 1.1,
     kind,
     parentStickerId: parentStickerId || null,
+    color: color || '#000000',
+    glow: normalizeGlow(glow),
+    gradient: normalizeGradient(gradient),
     el: null,
   };
   const el = document.createElement('div');
@@ -2509,6 +2568,9 @@ function serializeTextLayer(layer) {
     lineHeight: layer.lineHeight,
     kind: layer.kind, // 'text' または 'monologue'
     parentStickerId: layer.parentStickerId || null,
+    color: layer.color || '#000000',
+    glow: layer.glow ? { ...layer.glow } : null,
+    gradient: layer.gradient ? { ...layer.gradient } : null,
   };
 }
 
@@ -2613,6 +2675,9 @@ function pasteFromClipboard() {
       orientation: d.orientation,
       lineHeight: d.lineHeight,
       kind: d.kind,
+      color: d.color,
+      glow: d.glow,
+      gradient: d.gradient,
     });
   } else if (clipboard.kind === 'sticker') {
     addStickerLayer({
@@ -2633,6 +2698,9 @@ function pasteFromClipboard() {
           orientation: c.orientation,
           lineHeight: c.lineHeight,
           kind: c.kind,
+          color: c.color,
+          glow: c.glow,
+          gradient: c.gradient,
           parentStickerId: newStickerId,
         });
       }
@@ -2822,6 +2890,34 @@ function updateInspector() {
   els.propOrientation.value = layer.orientation;
   els.propLineHeight.value = String(layer.lineHeight);
   els.propLineHeightValue.textContent = String(layer.lineHeight);
+  syncTextStyleControls(layer);
+}
+
+// 文字色・グラデーション・グローのコントロールを選択中レイヤーに合わせて更新する。
+function syncTextStyleControls(layer) {
+  els.propColor.value = normalizeHexColor(layer.color, '#000000');
+
+  const grad = layer.gradient;
+  els.propGradientEnabled.checked = !!grad;
+  els.propGradientControls.hidden = !grad;
+  els.propGradientFrom.value = normalizeHexColor(grad && grad.from, '#ff3366');
+  els.propGradientTo.value = normalizeHexColor(grad && grad.to, '#3366ff');
+  const angle = grad && typeof grad.angle === 'number' ? grad.angle : 90;
+  els.propGradientAngle.value = String(angle);
+  els.propGradientAngleValue.textContent = String(angle);
+
+  const glow = layer.glow;
+  els.propGlowEnabled.checked = !!glow;
+  els.propGlowControls.hidden = !glow;
+  els.propGlowColor.value = normalizeHexColor(glow && glow.color, '#ffffff');
+  const blur = glow && typeof glow.blur === 'number' ? glow.blur : 12;
+  els.propGlowBlur.value = String(blur);
+  els.propGlowBlurValue.textContent = String(blur);
+}
+
+// input[type=color] は #rrggbb 形式しか受け付けないので、それ以外は既定値に丸める。
+function normalizeHexColor(value, fallback) {
+  return /^#[0-9a-fA-F]{6}$/.test(value || '') ? value : fallback;
 }
 
 els.propText.addEventListener('input', () => {
@@ -2871,6 +2967,102 @@ els.propLineHeight.addEventListener('input', () => {
   applyLayerStyle(layer);
   renderTextPreview();
 });
+
+// よく使う表紙向けの色見本。クリックで文字色に即適用。
+const TEXT_COLOR_PRESETS = ['#000000', '#ffffff', '#ff3366', '#ffcc00', '#22cc66', '#3399ff', '#9933ff', '#ff6600'];
+
+function buildColorSwatches() {
+  els.propColorSwatches.innerHTML = '';
+  for (const c of TEXT_COLOR_PRESETS) {
+    const sw = document.createElement('button');
+    sw.type = 'button';
+    sw.className = 'color-swatch';
+    sw.style.background = c;
+    sw.title = c;
+    sw.addEventListener('click', () => {
+      const layer = getSelectedLayer();
+      if (!layer || isStickerLike(layer)) return;
+      recordUndo();
+      layer.color = c;
+      els.propColor.value = normalizeHexColor(c, '#000000');
+      applyLayerStyle(layer);
+      renderTextPreview();
+    });
+    els.propColorSwatches.appendChild(sw);
+  }
+}
+buildColorSwatches();
+
+els.propColor.addEventListener('input', () => {
+  const layer = getSelectedLayer();
+  if (!layer) return;
+  recordUndo();
+  layer.color = els.propColor.value;
+  renderTextPreview();
+});
+
+els.propGradientEnabled.addEventListener('change', () => {
+  const layer = getSelectedLayer();
+  if (!layer) return;
+  recordUndo();
+  if (els.propGradientEnabled.checked) {
+    layer.gradient = {
+      from: normalizeHexColor(els.propGradientFrom.value, '#ff3366'),
+      to: normalizeHexColor(els.propGradientTo.value, '#3366ff'),
+      angle: Number(els.propGradientAngle.value) || 90,
+    };
+  } else {
+    layer.gradient = null;
+  }
+  els.propGradientControls.hidden = !els.propGradientEnabled.checked;
+  renderTextPreview();
+});
+
+function updateGradientFromControls() {
+  const layer = getSelectedLayer();
+  if (!layer || !els.propGradientEnabled.checked) return;
+  recordUndo();
+  layer.gradient = {
+    from: els.propGradientFrom.value,
+    to: els.propGradientTo.value,
+    angle: Number(els.propGradientAngle.value) || 0,
+  };
+  els.propGradientAngleValue.textContent = String(layer.gradient.angle);
+  renderTextPreview();
+}
+els.propGradientFrom.addEventListener('input', updateGradientFromControls);
+els.propGradientTo.addEventListener('input', updateGradientFromControls);
+els.propGradientAngle.addEventListener('input', updateGradientFromControls);
+
+els.propGlowEnabled.addEventListener('change', () => {
+  const layer = getSelectedLayer();
+  if (!layer) return;
+  recordUndo();
+  if (els.propGlowEnabled.checked) {
+    layer.glow = {
+      color: normalizeHexColor(els.propGlowColor.value, '#ffffff'),
+      blur: Number(els.propGlowBlur.value) || 12,
+    };
+  } else {
+    layer.glow = null;
+  }
+  els.propGlowControls.hidden = !els.propGlowEnabled.checked;
+  renderTextPreview();
+});
+
+function updateGlowFromControls() {
+  const layer = getSelectedLayer();
+  if (!layer || !els.propGlowEnabled.checked) return;
+  recordUndo();
+  layer.glow = {
+    color: els.propGlowColor.value,
+    blur: Number(els.propGlowBlur.value) || 1,
+  };
+  els.propGlowBlurValue.textContent = String(layer.glow.blur);
+  renderTextPreview();
+}
+els.propGlowColor.addEventListener('input', updateGlowFromControls);
+els.propGlowBlur.addEventListener('input', updateGlowFromControls);
 
 els.propDelete.addEventListener('click', () => {
   const layer = getSelectedLayer();
@@ -3237,9 +3429,50 @@ function splitTextLines(text) {
   return String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 }
 
+// グローを重ねる回数。多いほど発光が強くなる。
+const GLOW_PASSES = 3;
+
 function setupTextContext(ctx, layer) {
-  ctx.fillStyle = '#000';
+  ctx.fillStyle = layer.color || '#000';
   ctx.font = `${layer.size}px "${layer.font}", sans-serif`;
+}
+
+// 本文の塗り(単色 or グラデーション)を ctx.fillStyle に設定する。
+// グラデーションはテキストのバウンディングボックスを基準に角度方向へ展開する。
+function applyTextFillStyle(ctx, layer) {
+  const g = layer.gradient;
+  if (g && g.from && g.to) {
+    const b = measureTextLayerBounds(layer);
+    const angle = ((typeof g.angle === 'number' ? g.angle : 90) * Math.PI) / 180;
+    const cx = layer.x + b.x + b.width / 2;
+    const cy = layer.y + b.y + b.height / 2;
+    const half = Math.max(b.width, b.height) / 2 || layer.size / 2;
+    const dx = Math.cos(angle) * half;
+    const dy = Math.sin(angle) * half;
+    const grad = ctx.createLinearGradient(cx - dx, cy - dy, cx + dx, cy + dy);
+    grad.addColorStop(0, g.from);
+    grad.addColorStop(1, g.to);
+    ctx.fillStyle = grad;
+  } else {
+    ctx.fillStyle = layer.color || '#000';
+  }
+}
+
+// グロー(発光)→ 本文 の順で塗る共通ルーチン。
+// drawAllFn は「全グリフを現在の ctx 設定で 1 回描く」関数。
+function paintTextWithStyle(ctx, layer, drawAllFn) {
+  ctx.save();
+  if (layer.glow && layer.glow.blur > 0) {
+    ctx.shadowColor = layer.glow.color || '#ffffff';
+    ctx.shadowBlur = layer.glow.blur;
+    ctx.fillStyle = layer.glow.color || '#ffffff';
+    for (let pass = 0; pass < GLOW_PASSES; pass++) drawAllFn();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+  }
+  applyTextFillStyle(ctx, layer);
+  drawAllFn();
+  ctx.restore();
 }
 
 function getVerticalGlyphOffset(char, size) {
@@ -3357,8 +3590,11 @@ function drawHorizontalTextLayer(ctx, layer) {
   ctx.textAlign = 'left';
   ctx.textBaseline = 'top';
   const lineAdvance = layer.size * layer.lineHeight;
-  splitTextLines(layer.text).forEach((line, index) => {
-    ctx.fillText(line, layer.x, layer.y + lineAdvance * index);
+  const lines = splitTextLines(layer.text);
+  paintTextWithStyle(ctx, layer, () => {
+    lines.forEach((line, index) => {
+      ctx.fillText(line, layer.x, layer.y + lineAdvance * index);
+    });
   });
 }
 
@@ -3368,11 +3604,14 @@ function drawVerticalTextLayer(ctx, layer) {
   ctx.textBaseline = 'top';
   const charAdvance = layer.size * layer.lineHeight;
   const columnAdvance = layer.size * layer.lineHeight;
-  splitTextLines(layer.text).forEach((column, columnIndex) => {
-    const x = layer.x + layer.size / 2 - columnAdvance * columnIndex;
-    for (const [charIndex, char] of [...column].entries()) {
-      drawVerticalGlyph(ctx, char, x, layer.y + charAdvance * charIndex, layer.size);
-    }
+  const columns = splitTextLines(layer.text);
+  paintTextWithStyle(ctx, layer, () => {
+    columns.forEach((column, columnIndex) => {
+      const x = layer.x + layer.size / 2 - columnAdvance * columnIndex;
+      for (const [charIndex, char] of [...column].entries()) {
+        drawVerticalGlyph(ctx, char, x, layer.y + charAdvance * charIndex, layer.size);
+      }
+    });
   });
 }
 
@@ -3587,6 +3826,9 @@ function buildProjectData(page = cur, overlayFileById = new Map()) {
         orientation: l.orientation,
         lineHeight: l.lineHeight,
         kind: l.kind || 'text',
+        color: l.color || '#000000',
+        glow: l.glow ? { ...l.glow } : null,
+        gradient: l.gradient ? { ...l.gradient } : null,
       };
     }),
   };
@@ -3679,6 +3921,9 @@ async function applyProjectData(data, targetPage = cur, overlayEntries = {}) {
       lineHeight: typeof l.lineHeight === 'number' ? l.lineHeight : undefined,
       kind: (l.kind === 'monologue' || l.kind === 'bubble') ? l.kind : 'text',
       parentStickerId: Number(l.parentStickerId) || null,
+      color: typeof l.color === 'string' ? l.color : undefined,
+      glow: l.glow,
+      gradient: l.gradient,
     }, targetPage);
   }
     if (targetPage === cur) deselect();

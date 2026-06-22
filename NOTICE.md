@@ -32,3 +32,25 @@
 同梱しており、改変はしていません。フォント自体に関する著作権は海星社に帰属します。
 
 本リポジトリの MIT License は、これらのフォントファイルには適用されません。
+
+## 同梱フォント (表紙カバー向け / SIL Open Font License 1.1)
+
+以下のフォントは SIL Open Font License 1.1 に基づき、商用・非商用を問わず
+利用および再配布が認められています（利用分野の制限はありません）。各フォントの
+ライセンス全文は `assets/fonts/OFL-*.txt` に同梱しています。
+
+- `assets/fonts/DelaGothicOne-Regular.ttf` — **Dela Gothic One**
+  - 著作権: Copyright The Dela Gothic Project Authors — <https://github.com/syakuzen/DelaGothic>
+  - ライセンス: `assets/fonts/OFL-DelaGothicOne.txt`
+- `assets/fonts/RocknRollOne-Regular.ttf` — **RocknRoll One**
+  - 著作権: Copyright The RocknRoll One Project Authors — <https://github.com/fontdasu/RocknRollOne>
+  - ライセンス: `assets/fonts/OFL-RocknRollOne.txt`
+- `assets/fonts/ShipporiMincho-Bold.ttf` — **Shippori Mincho (Bold)**
+  - 著作権: Copyright The Shippori Mincho Project Authors — <https://github.com/fontdasu/ShipporiMincho>
+  - ライセンス: `assets/fonts/OFL-ShipporiMincho.txt`
+- `assets/fonts/YujiSyuku-Regular.ttf` — **Yuji Syuku**
+  - 著作権: Copyright The Yuji Project Authors — <https://github.com/Kinutafontfactory/Yuji>
+  - ライセンス: `assets/fonts/OFL-YujiSyuku.txt`
+
+これらのフォントファイルは配布元の公開ファイルをそのまま同梱しており、改変は
+していません。本リポジトリの MIT License はこれらのフォントファイルには適用されません。

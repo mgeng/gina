@@ -21,7 +21,8 @@
 - **オーバーレイ画像**: ウィンドウへ画像をドラッグ&ドロップすると、コマをまたいで上から重ねる画像として配置
 - **吹き出し**: 16 種類の形状（横書き用 / 縦書き用）から選択、リサイズ、左右・上下反転に対応
 - **テキスト / モノローグ**: 横書き・縦書き、フォント・サイズ・行間を切り替え可能
-- **フォント同梱**: 漫画用に定番の **源暎アンチック Pv6 / Nv6**、および **851チカラヅヨク**
+- **文字スタイル強化**: 文字色（カラーピッカー＋プリセット）、グラデーション（開始/終了色・角度）、グロー（発光色・強さ）
+- **フォント同梱**: 漫画用に定番の **源暎アンチック Pv6 / Nv6**、**851チカラヅヨク**、表紙カバー向けに **Dela Gothic One** / **RocknRoll One** / **しっぽり明朝 B** / **Yuji Syuku**（いずれも SIL OFL）
 - **プロジェクト保存**: `.mj` 形式（中身は ZIP）で全ページのレイアウト・テキスト・画像をまとめて保存／読み込み
 - **PNG 書き出し**: ページ単位で PNG 出力
 - **メモ**: セリフ案などをページごとに置いておけるサイドメモ
@@ -109,6 +110,7 @@ git clone https://github.com/mgeng/gina.git
 - 同梱ライブラリ **JSZip**: MIT License — <https://stuk.github.io/jszip/>
 - 同梱フォント **源暎アンチック Pv6 / Nv6** (海星社): 配布元の規約に従います。
 - 同梱フォント **851チカラヅヨク**: 配布元の規約に従います。
+- 同梱フォント **Dela Gothic One / RocknRoll One / Shippori Mincho / Yuji Syuku**: SIL Open Font License 1.1（商用利用可）。各ライセンス文は `assets/fonts/OFL-*.txt` を参照。
 
 詳細は [NOTICE.md](./NOTICE.md) を参照してください。
 
@@ -116,4 +118,8 @@ git clone https://github.com/mgeng/gina.git
 
 - フォント: **源暎アンチック Pv6 / Nv6** (海星社) — <https://okoneya.jp/font/genei-antique.html>
 - フォント: **851チカラヅヨク** — <https://pm85122.onamae.jp/851ch-dz.html>
+- フォント: **Dela Gothic One** — <https://github.com/syakuzen/DelaGothic>
+- フォント: **RocknRoll One** — <https://github.com/fontdasu/RocknRollOne>
+- フォント: **Shippori Mincho** — <https://github.com/fontdasu/ShipporiMincho>
+- フォント: **Yuji** (Yuji Syuku) — <https://github.com/Kinutafontfactory/Yuji>
 - ZIP 読み書き: **JSZip** — <https://stuk.github.io/jszip/>
