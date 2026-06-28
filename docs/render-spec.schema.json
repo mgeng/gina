@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/mgeng/gina/docs/render-spec.schema.json",
+  "title": "gina-render render-spec v0.1",
+  "description": "gina-render CLI の入力 JSON スキーマ。詳細は docs/render-spec.md を参照。",
+  "type": "object",
+  "required": ["version", "output", "elements"],
+  "additionalProperties": true,
+  "properties": {
+    "version": {
+      "const": "0.1",
+      "description": "スキーマバージョン。現在は \"0.1\" のみ有効。"
+    },
+    "base_image": {
+      "type": "string",
+      "description": "ベース画像のパス（spec からの相対 or 絶対）。省略時は白背景。"
+    },
+    "output": {
+      "type": "string",
+      "description": "出力 PNG のパス。--out で上書き可。"
+    },
+    "canvas": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "width": { "type": "number" },
+        "height": { "type": "number" }
+      }
+    },
+    "elements": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/element" }
+    }
+  },
+  "$defs": {
+    "cssColor": {
+      "type": "string",
+      "description": "CSS カラー文字列（例 \"#cc0000\"）。"
+    },
+    "commonText": {
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "text": { "type": "string", "minLength": 1 },
+        "x": { "type": "number" },
+        "y": { "type": "number" },
+        "writing": { "enum": ["vertical", "horizontal"], "default": "horizontal" },
+        "font": {
+          "enum": [
+            "GenEiAntiquePv6",
+            "GenEiAntiqueNv6",
+            "ChikaraDzuyoku",
+            "DelaGothicOne",
+            "RocknRollOne",
+            "ShipporiMinchoB",
+            "YujiSyuku"
+          ],
+          "default": "GenEiAntiquePv6"
+        },
+        "fontSize": { "type": "number", "default": 24 },
+        "lineHeight": { "type": "number", "default": 1.1 }
+      }
+    },
+    "element": {
+      "type": "object",
+      "required": ["type"],
+      "oneOf": [
+        { "$ref": "#/$defs/bubbleElement" },
+        { "$ref": "#/$defs/textElement" },
+        { "$ref": "#/$defs/monologueElement" },
+        { "$ref": "#/$defs/sfxElement" }
+      ]
+    },
+    "bubbleElement": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/commonText" }],
+      "required": ["type", "text", "x", "y"],
+      "additionalProperties": true,
+      "properties": {
+        "type": { "const": "bubble" },
+        "shape": {
+          "enum": ["normal", "shout", "thought", "rect"],
+          "default": "normal",
+          "description": "v0.1 で実装済みは \"normal\" のみ。他は exit 1。"
+        },
+        "tailOffsetX": { "type": "number" },
+        "tailOffsetY": { "type": "number" }
+      }
+    },
+    "textElement": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/commonText" }],
+      "required": ["type", "text", "x", "y"],
+      "additionalProperties": true,
+      "properties": {
+        "type": { "const": "text" },
+        "color": { "$ref": "#/$defs/cssColor" },
+        "strokeColor": { "$ref": "#/$defs/cssColor" },
+        "strokeWidth": { "type": "number" },
+        "glow": {
+          "type": "object",
+          "required": ["blur"],
+          "properties": {
+            "color": { "$ref": "#/$defs/cssColor" },
+            "blur": { "type": "number", "description": "blur > 0 で有効。" }
+          }
+        },
+        "gradient": {
+          "type": "object",
+          "required": ["from", "to"],
+          "properties": {
+            "from": { "$ref": "#/$defs/cssColor" },
+            "to": { "$ref": "#/$defs/cssColor" },
+            "angle": { "type": "number", "default": 90 }
+          }
+        }
+      }
+    },
+    "monologueElement": {
+      "type": "object",
+      "allOf": [{ "$ref": "#/$defs/commonText" }],
+      "required": ["type", "text", "x", "y"],
+      "additionalProperties": true,
+      "properties": {
+        "type": { "const": "monologue" }
+      }
+    },
+    "sfxElement": {
+      "type": "object",
+      "required": ["type"],
+      "additionalProperties": true,
+      "properties": {
+        "type": { "const": "sfx" },
+        "text": { "type": "string" },
+        "x": { "type": "number" },
+        "y": { "type": "number" }
+      }
+    }
+  }
+}
