@@ -4,24 +4,35 @@
  * フキダシ・縦書きテキストのレンダリングコア。
  * ブラウザ/DOM に依存しない純粋な Canvas 2D Context ベースの実装。
  *
- * このファイルの関数はすべて src/main.js の同名関数と完全に同じロジックを持つ。
- * main.js 側は変更せず、GUI は引き続き main.js 内のコピーを使う。
- * CLI (gina-render) はこのファイルを直接 require する。
+ * GUI (src/main.js) と CLI (bin/gina-render) の双方がこの単一実装を共有する。
+ * 重複コピーは持たない。
+ *  - ブラウザ: <script src="src/core/renderer.js"> で読み込むと globalThis.GinaRenderCore に公開される。
+ *  - Node:     require('../src/core/renderer') で module.exports から取得する。
+ *
+ * 中核は DOM・グローバル・イベントに一切依存しない。テキスト計測に必要な
+ * Canvas だけは呼び出し側から setMeasureCanvas() で注入する
+ * (ブラウザ: document.createElement('canvas') / Node: node-canvas の createCanvas)。
  */
 
 'use strict';
 
+// IIFE で内部宣言を閉じ込める。ブラウザではクラシックスクリプトの top-level const が
+// グローバル字句スコープに漏れて main.js 側と衝突するため、ここでスコープを切る。
+// 公開は末尾の GinaRenderCore (module.exports / globalThis) 経由のみ。
+(function () {
+
 // --- フォント設定 ---
-// src/main.js の FONTS 定数と同一
+// GUI のフォント select / 書き出しの両方がこの一覧を参照する。ここに追記すれば両方へ反映される。
+// label は GUI 専用 (CLI/フォント登録は name/file のみ使用)。
 const FONTS = [
-  { name: 'GenEiAntiquePv6', file: 'assets/fonts/GenEiAntiquePv6-M.ttf' },
-  { name: 'GenEiAntiqueNv6', file: 'assets/fonts/GenEiAntiqueNv6-M.ttf' },
-  { name: 'ChikaraDzuyoku', file: 'assets/fonts/851CHIKARA-DZUYOKU_kanaA_004.ttf' },
+  { name: 'GenEiAntiquePv6', label: '源暎アンチック Pv6', file: 'assets/fonts/GenEiAntiquePv6-M.ttf' },
+  { name: 'GenEiAntiqueNv6', label: '源暎アンチック Nv6', file: 'assets/fonts/GenEiAntiqueNv6-M.ttf' },
+  { name: 'ChikaraDzuyoku', label: '851チカラヅヨク かなA', file: 'assets/fonts/851CHIKARA-DZUYOKU_kanaA_004.ttf' },
   // 表紙カバー向け(SIL OFL / 商用利用可)
-  { name: 'DelaGothicOne', file: 'assets/fonts/DelaGothicOne-Regular.ttf' },
-  { name: 'RocknRollOne', file: 'assets/fonts/RocknRollOne-Regular.ttf' },
-  { name: 'ShipporiMinchoB', file: 'assets/fonts/ShipporiMincho-Bold.ttf' },
-  { name: 'YujiSyuku', file: 'assets/fonts/YujiSyuku-Regular.ttf' },
+  { name: 'DelaGothicOne', label: 'Dela Gothic One（極太見出し）', file: 'assets/fonts/DelaGothicOne-Regular.ttf' },
+  { name: 'RocknRollOne', label: 'RocknRoll One（丸太ゴシック）', file: 'assets/fonts/RocknRollOne-Regular.ttf' },
+  { name: 'ShipporiMinchoB', label: 'しっぽり明朝 B（上品な明朝）', file: 'assets/fonts/ShipporiMincho-Bold.ttf' },
+  { name: 'YujiSyuku', label: 'Yuji Syuku（筆書き楷書）', file: 'assets/fonts/YujiSyuku-Regular.ttf' },
 ];
 
 // --- フキダシ定数 (src/main.js と同値) ---
@@ -43,12 +54,29 @@ function splitTextLines(text) {
   return String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
 }
 
-// グローを重ねる回数。多いほど発光が強くなる。src/main.js と同値。
+// グローを重ねる回数。多いほど発光が強くなる。
 const GLOW_PASSES = 3;
 
 function setupTextContext(ctx, layer) {
   ctx.fillStyle = layer.color || '#000';
   ctx.font = `${layer.size}px "${layer.font}", sans-serif`;
+}
+
+// グロー(発光)→ 本文 の順で塗る共通ルーチン。
+// drawAllFn は「全グリフを現在の ctx 設定で 1 回描く」関数。
+function paintTextWithStyle(ctx, layer, drawAllFn) {
+  ctx.save();
+  if (layer.glow && layer.glow.blur > 0) {
+    ctx.shadowColor = layer.glow.color || '#ffffff';
+    ctx.shadowBlur = layer.glow.blur;
+    ctx.fillStyle = layer.glow.color || '#ffffff';
+    for (let pass = 0; pass < GLOW_PASSES; pass++) drawAllFn();
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+  }
+  applyTextFillStyle(ctx, layer);
+  drawAllFn();
+  ctx.restore();
 }
 
 // 本文の塗り(単色 or グラデーション)を ctx.fillStyle に設定する。src/main.js と同一ロジック。
@@ -128,6 +156,14 @@ function measureBubbleTextRect(layer) {
 }
 
 function measureTextLayerBounds(layer) {
+  if (layer.kind === 'bubble') {
+    const s = computeBubbleShape(layer);
+    const left = Math.min(s.cx - s.rx, s.tipX) - BUBBLE_BORDER;
+    const top = Math.min(s.cy - s.ry, s.tipY) - BUBBLE_BORDER;
+    const right = Math.max(s.cx + s.rx, s.tipX) + BUBBLE_BORDER;
+    const bottom = Math.max(s.cy + s.ry, s.tipY) + BUBBLE_BORDER;
+    return { x: left, y: top, width: right - left, height: bottom - top };
+  }
   const padding = layer.kind === 'monologue' ? MONOLOGUE_PADDING : 0;
   const lines = splitTextLines(layer.text);
   const lineAdvance = layer.size * layer.lineHeight;
@@ -215,27 +251,17 @@ function drawHorizontalTextLayer(ctx, layer) {
   ctx.textBaseline = 'top';
   const lineAdvance = layer.size * layer.lineHeight;
   const lines = splitTextLines(layer.text);
-  // グロー(発光)を下地に描く
-  if (layer.glow && layer.glow.blur > 0) {
-    ctx.save();
-    ctx.shadowColor = layer.glow.color || '#ffffff';
-    ctx.shadowBlur = layer.glow.blur;
-    ctx.fillStyle = layer.glow.color || '#ffffff';
-    for (let pass = 0; pass < GLOW_PASSES; pass++) {
-      lines.forEach((line, index) => ctx.fillText(line, layer.x, layer.y + lineAdvance * index));
-    }
-    ctx.restore();
-  }
-  applyTextFillStyle(ctx, layer);
-  lines.forEach((line, index) => {
-    const tx = layer.x, ty = layer.y + lineAdvance * index;
-    if (layer.strokeWidth) {
-      ctx.lineWidth = layer.strokeWidth;
-      ctx.strokeStyle = layer.strokeColor || '#000';
-      ctx.lineJoin = 'round';
-      ctx.strokeText(line, tx, ty);
-    }
-    ctx.fillText(line, tx, ty);
+  paintTextWithStyle(ctx, layer, () => {
+    lines.forEach((line, index) => {
+      const tx = layer.x, ty = layer.y + lineAdvance * index;
+      if (layer.strokeWidth) {
+        ctx.lineWidth = layer.strokeWidth;
+        ctx.strokeStyle = layer.strokeColor || '#000';
+        ctx.lineJoin = 'round';
+        ctx.strokeText(line, tx, ty);
+      }
+      ctx.fillText(line, tx, ty);
+    });
   });
 }
 
@@ -246,24 +272,14 @@ function drawVerticalTextLayer(ctx, layer) {
   const charAdvance = layer.size * layer.lineHeight;
   const columnAdvance = layer.size * layer.lineHeight;
   const columns = splitTextLines(layer.text);
-  const drawAll = () => {
+  paintTextWithStyle(ctx, layer, () => {
     columns.forEach((column, columnIndex) => {
       const x = layer.x + layer.size / 2 - columnAdvance * columnIndex;
       for (const [charIndex, char] of [...column].entries()) {
         drawVerticalGlyph(ctx, char, x, layer.y + charAdvance * charIndex, layer.size);
       }
     });
-  };
-  if (layer.glow && layer.glow.blur > 0) {
-    ctx.save();
-    ctx.shadowColor = layer.glow.color || '#ffffff';
-    ctx.shadowBlur = layer.glow.blur;
-    ctx.fillStyle = layer.glow.color || '#ffffff';
-    for (let pass = 0; pass < GLOW_PASSES; pass++) drawAll();
-    ctx.restore();
-  }
-  applyTextFillStyle(ctx, layer);
-  drawAll();
+  });
 }
 
 function drawTextLayer(ctx, layer) {
@@ -412,12 +428,28 @@ async function renderSpec(spec, { createCanvas, loadImage, basePath = process.cw
   return canvas.toBuffer('image/png');
 }
 
-module.exports = {
+const GinaRenderCore = {
+  // 定数
   FONTS,
+  GLOW_PASSES,
+  BUBBLE_PADDING_X,
+  BUBBLE_PADDING_Y,
+  BUBBLE_BORDER,
+  BUBBLE_MIN_RX,
+  BUBBLE_MIN_RY,
+  BUBBLE_TAIL_OFFSET_X,
+  BUBBLE_TAIL_OFFSET_Y,
+  BUBBLE_TAIL_HALF_ANGLE,
+  MONOLOGUE_PADDING,
+  MONOLOGUE_BORDER,
+  // CLI エントリ
   renderSpec,
-  // 内部関数も export（テスト・GUI再利用用）
+  specElementToLayer,
+  // 描画・計測コア（GUI / CLI 共有）
   splitTextLines,
   setupTextContext,
+  applyTextFillStyle,
+  paintTextWithStyle,
   getVerticalGlyphOffset,
   drawVerticalGlyph,
   measureBubbleTextRect,
@@ -429,6 +461,14 @@ module.exports = {
   drawHorizontalTextLayer,
   drawVerticalTextLayer,
   drawTextLayer,
-  specElementToLayer,
   setMeasureCanvas,
 };
+
+// UMD: Node (CommonJS) では module.exports、ブラウザ (<script>) では globalThis に公開。
+if (typeof module !== 'undefined' && module.exports) {
+  module.exports = GinaRenderCore;
+} else {
+  globalThis.GinaRenderCore = GinaRenderCore;
+}
+
+})();

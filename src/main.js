@@ -1,44 +1,28 @@
 // Gina — 漫画オーサリングツール
 
-// --- フォント設定(ここを追記すれば select と書き出しの両方に反映) ---
-const FONTS = [
-  {
-    name: 'GenEiAntiquePv6',
-    label: '源暎アンチック Pv6',
-    file: 'assets/fonts/GenEiAntiquePv6-M.ttf',
-  },
-  {
-    name: 'GenEiAntiqueNv6',
-    label: '源暎アンチック Nv6',
-    file: 'assets/fonts/GenEiAntiqueNv6-M.ttf',
-  },
-  {
-    name: 'ChikaraDzuyoku',
-    label: '851チカラヅヨク かなA',
-    file: 'assets/fonts/851CHIKARA-DZUYOKU_kanaA_004.ttf',
-  },
-  // --- 表紙カバー向け(SIL OFL / 商用利用可) ---
-  {
-    name: 'DelaGothicOne',
-    label: 'Dela Gothic One（極太見出し）',
-    file: 'assets/fonts/DelaGothicOne-Regular.ttf',
-  },
-  {
-    name: 'RocknRollOne',
-    label: 'RocknRoll One（丸太ゴシック）',
-    file: 'assets/fonts/RocknRollOne-Regular.ttf',
-  },
-  {
-    name: 'ShipporiMinchoB',
-    label: 'しっぽり明朝 B（上品な明朝）',
-    file: 'assets/fonts/ShipporiMincho-Bold.ttf',
-  },
-  {
-    name: 'YujiSyuku',
-    label: 'Yuji Syuku（筆書き楷書）',
-    file: 'assets/fonts/YujiSyuku-Regular.ttf',
-  },
-];
+// --- レンダリング中核の共有モジュール ---
+// 描画・計測・フキダシジオメトリ・フォント一覧・関連定数は src/core/renderer.js が単一の正。
+// CLI (bin/gina-render) も同じファイルを require する。<script src="src/core/renderer.js"> が先に
+// 読み込まれ globalThis.GinaRenderCore を生成する (index.html 参照)。
+const {
+  FONTS,
+  // フキダシ/モノローグ定数
+  BUBBLE_PADDING_X, BUBBLE_PADDING_Y, BUBBLE_BORDER,
+  BUBBLE_MIN_RX, BUBBLE_MIN_RY,
+  BUBBLE_TAIL_OFFSET_X, BUBBLE_TAIL_OFFSET_Y, BUBBLE_TAIL_HALF_ANGLE,
+  MONOLOGUE_PADDING, MONOLOGUE_BORDER, GLOW_PASSES,
+  // 描画・計測コア
+  splitTextLines, setupTextContext, applyTextFillStyle, paintTextWithStyle,
+  getVerticalGlyphOffset, drawVerticalGlyph,
+  measureBubbleTextRect, measureTextLayerBounds,
+  computeBubbleShape, drawSpeechBubblePath,
+  drawBubbleBox, drawMonologueBox,
+  drawHorizontalTextLayer, drawVerticalTextLayer, drawTextLayer,
+  setMeasureCanvas,
+} = globalThis.GinaRenderCore;
+
+// テキスト計測用キャンバスを中核へ注入 (中核は DOM 非依存のため呼び出し側が用意する)
+setMeasureCanvas(document.createElement('canvas'));
 
 const FONT_FILES = Object.fromEntries(FONTS.map((f) => [f.name, f.file]));
 
@@ -344,8 +328,7 @@ const CANVAS_MAX_PX = 4000;
 const OPPOSITE_EDGE = { left: 'right', right: 'left', top: 'bottom', bottom: 'top' };
 const MIN_PANEL_DIM = 0.05; // コマがゼロサイズにならないよう正規化座標での最小寸法
 
-const MONOLOGUE_PADDING = 12;
-const MONOLOGUE_BORDER = 2;
+// MONOLOGUE_PADDING / MONOLOGUE_BORDER は GinaRenderCore から取得 (冒頭の分割代入)。
 
 // 吹き出しステッカー(画像)の既定値
 const STICKER_DEFAULT_SRC = 'assets/bubbles/vertical/bubble-01-oval.png';
@@ -386,17 +369,7 @@ const BUBBLE_CATALOG = [
 ];
 const STICKER_DEFAULT_WIDTH = 280; // ページ座標での初期表示幅
 
-// フキダシ：楕円の長半径 = (テキスト半幅 + パディング) × √2 で外接楕円にする。
-// 尾は楕円の下方向に少し左寄りで短く伸びる「三角形のシッポ」。楕円周上 a1/a2
-// から tip まで直線で結び、楕円弧と合わせて 1 つの閉じたパスにする(継ぎ目なし)。
-const BUBBLE_PADDING_X = 32;
-const BUBBLE_PADDING_Y = 20;
-const BUBBLE_BORDER = 3;
-const BUBBLE_MIN_RX = 70;
-const BUBBLE_MIN_RY = 46;
-const BUBBLE_TAIL_OFFSET_X = -8;   // 中心からの水平オフセット(px)。負で本体の左寄り
-const BUBBLE_TAIL_OFFSET_Y = 70;   // 楕円の下端より少し外に tip を置く
-const BUBBLE_TAIL_HALF_ANGLE = 0.18; // 付け根の弧の半開き角(rad)。狭めて鋭い三角形に
+// BUBBLE_* (パディング/縁/最小半径/尾オフセット) は GinaRenderCore から取得 (冒頭の分割代入)。
 
 // 旧 .mj に同梱されていた漫画全体画像の拡張子（読み込み時に無視する判定に使う）
 const IMAGE_EXT_RE = /\.(png|jpe?g|gif|webp|bmp|avif|svg)$/i;
@@ -3423,120 +3396,9 @@ async function ensureExportFontsReady() {
   }
 }
 
-// === Text Rendering (Canvas) ===
-
-function splitTextLines(text) {
-  return String(text).replace(/\r\n/g, '\n').replace(/\r/g, '\n').split('\n');
-}
-
-// グローを重ねる回数。多いほど発光が強くなる。
-const GLOW_PASSES = 3;
-
-function setupTextContext(ctx, layer) {
-  ctx.fillStyle = layer.color || '#000';
-  ctx.font = `${layer.size}px "${layer.font}", sans-serif`;
-}
-
-// 本文の塗り(単色 or グラデーション)を ctx.fillStyle に設定する。
-// グラデーションはテキストのバウンディングボックスを基準に角度方向へ展開する。
-function applyTextFillStyle(ctx, layer) {
-  const g = layer.gradient;
-  if (g && g.from && g.to) {
-    const b = measureTextLayerBounds(layer);
-    const angle = ((typeof g.angle === 'number' ? g.angle : 90) * Math.PI) / 180;
-    const cx = layer.x + b.x + b.width / 2;
-    const cy = layer.y + b.y + b.height / 2;
-    const half = Math.max(b.width, b.height) / 2 || layer.size / 2;
-    const dx = Math.cos(angle) * half;
-    const dy = Math.sin(angle) * half;
-    const grad = ctx.createLinearGradient(cx - dx, cy - dy, cx + dx, cy + dy);
-    grad.addColorStop(0, g.from);
-    grad.addColorStop(1, g.to);
-    ctx.fillStyle = grad;
-  } else {
-    ctx.fillStyle = layer.color || '#000';
-  }
-}
-
-// グロー(発光)→ 本文 の順で塗る共通ルーチン。
-// drawAllFn は「全グリフを現在の ctx 設定で 1 回描く」関数。
-function paintTextWithStyle(ctx, layer, drawAllFn) {
-  ctx.save();
-  if (layer.glow && layer.glow.blur > 0) {
-    ctx.shadowColor = layer.glow.color || '#ffffff';
-    ctx.shadowBlur = layer.glow.blur;
-    ctx.fillStyle = layer.glow.color || '#ffffff';
-    for (let pass = 0; pass < GLOW_PASSES; pass++) drawAllFn();
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-  }
-  applyTextFillStyle(ctx, layer);
-  drawAllFn();
-  ctx.restore();
-}
-
-function getVerticalGlyphOffset(char, size) {
-  if ('、。，．､｡'.includes(char)) {
-    return {
-      x: size * 0.25,
-      y: -size * 0.45,
-    };
-  }
-  return { x: 0, y: 0 };
-}
-
-function drawVerticalGlyph(ctx, char, x, y, size) {
-  const offset = getVerticalGlyphOffset(char, size);
-  const drawX = x + offset.x;
-  const drawY = y + offset.y;
-
-  if ('…‥ーｰ'.includes(char)) {
-    ctx.save();
-    ctx.translate(drawX, drawY + size / 2);
-    ctx.rotate(Math.PI / 2);
-    ctx.fillText(char, 0, -size / 2);
-    ctx.restore();
-    return;
-  }
-
-  ctx.fillText(char, drawX, drawY);
-}
-
-function measureTextLayerBounds(layer) {
-  if (layer.kind === 'bubble') {
-    const s = computeBubbleShape(layer);
-    const left = Math.min(s.cx - s.rx, s.tipX) - BUBBLE_BORDER;
-    const top = Math.min(s.cy - s.ry, s.tipY) - BUBBLE_BORDER;
-    const right = Math.max(s.cx + s.rx, s.tipX) + BUBBLE_BORDER;
-    const bottom = Math.max(s.cy + s.ry, s.tipY) + BUBBLE_BORDER;
-    return { x: left, y: top, width: right - left, height: bottom - top };
-  }
-  const padding = layer.kind === 'monologue' ? MONOLOGUE_PADDING : 0;
-  const lines = splitTextLines(layer.text);
-  const lineAdvance = layer.size * layer.lineHeight;
-  if (layer.orientation === 'vertical') {
-    const columns = Math.max(lines.length, 1);
-    const rows = Math.max(...lines.map((line) => [...line].length), 1);
-    return {
-      x: -lineAdvance * (columns - 1) - padding,
-      y: -padding,
-      width: lineAdvance * (columns - 1) + layer.size + padding * 2,
-      height: lineAdvance * (rows - 1) + layer.size + padding * 2,
-    };
-  }
-
-  const canvas = measureTextLayerBounds.canvas || document.createElement('canvas');
-  measureTextLayerBounds.canvas = canvas;
-  const ctx = canvas.getContext('2d');
-  setupTextContext(ctx, layer);
-  const width = Math.max(...lines.map((line) => ctx.measureText(line).width), layer.size);
-  return {
-    x: -padding,
-    y: -padding,
-    width: width + padding * 2,
-    height: Math.max(lines.length, 1) * lineAdvance + padding * 2,
-  };
-}
+// === Text Preview Rendering (Canvas) ===
+// 描画コア本体 (drawTextLayer など) は GinaRenderCore = src/core/renderer.js に集約。
+// ここはプレビュー canvas のサイズ同期と、レイヤー群をコアへ流し込む GUI 専用ルーチンのみ。
 
 function syncPreviewCanvasSize() {
   const w = cur.canvasWidth;
@@ -3583,139 +3445,6 @@ function renderTextPreview() {
       : mainCtx;
     drawTextLayer(ctx, layer);
   });
-}
-
-function drawHorizontalTextLayer(ctx, layer) {
-  setupTextContext(ctx, layer);
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'top';
-  const lineAdvance = layer.size * layer.lineHeight;
-  const lines = splitTextLines(layer.text);
-  paintTextWithStyle(ctx, layer, () => {
-    lines.forEach((line, index) => {
-      ctx.fillText(line, layer.x, layer.y + lineAdvance * index);
-    });
-  });
-}
-
-function drawVerticalTextLayer(ctx, layer) {
-  setupTextContext(ctx, layer);
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'top';
-  const charAdvance = layer.size * layer.lineHeight;
-  const columnAdvance = layer.size * layer.lineHeight;
-  const columns = splitTextLines(layer.text);
-  paintTextWithStyle(ctx, layer, () => {
-    columns.forEach((column, columnIndex) => {
-      const x = layer.x + layer.size / 2 - columnAdvance * columnIndex;
-      for (const [charIndex, char] of [...column].entries()) {
-        drawVerticalGlyph(ctx, char, x, layer.y + charAdvance * charIndex, layer.size);
-      }
-    });
-  });
-}
-
-// テキストの矩形(横書きなら原点が左上、縦書きなら最初の列の上端)を返す。
-// computeBubbleShape からだけ使う pure 関数で、measureTextLayerBounds の
-// 既存ロジックと同じ計算を分離したもの。
-function measureBubbleTextRect(layer) {
-  const lines = splitTextLines(layer.text);
-  const lineAdvance = layer.size * layer.lineHeight;
-  if (layer.orientation === 'vertical') {
-    const columns = Math.max(lines.length, 1);
-    const rows = Math.max(...lines.map((line) => [...line].length), 1);
-    return {
-      x: -lineAdvance * (columns - 1),
-      y: 0,
-      width: lineAdvance * (columns - 1) + layer.size,
-      height: lineAdvance * (rows - 1) + layer.size,
-    };
-  }
-  const canvas = measureTextLayerBounds.canvas || document.createElement('canvas');
-  measureTextLayerBounds.canvas = canvas;
-  const ctx = canvas.getContext('2d');
-  setupTextContext(ctx, layer);
-  const width = Math.max(...lines.map((line) => ctx.measureText(line).width), layer.size);
-  return {
-    x: 0,
-    y: 0,
-    width,
-    height: Math.max(lines.length, 1) * lineAdvance,
-  };
-}
-
-// フキダシの本体(楕円)+ 尾(先端 tip)のジオメトリをまとめて算出。
-// すべて layer.x / layer.y を原点としたローカル座標で返す。
-function computeBubbleShape(layer) {
-  const textRect = measureBubbleTextRect(layer);
-  const cx = textRect.x + textRect.width / 2;
-  const cy = textRect.y + textRect.height / 2;
-  // 矩形に外接する楕円は半径を √2 倍にすると四隅をちょうど通る。
-  // パディングを足してから √2 倍することで「テキストから一定の余白」を持つフキダシになる。
-  const halfW = textRect.width / 2 + BUBBLE_PADDING_X;
-  const halfH = textRect.height / 2 + BUBBLE_PADDING_Y;
-  const rx = Math.max(halfW * Math.SQRT2, BUBBLE_MIN_RX);
-  const ry = Math.max(halfH * Math.SQRT2, BUBBLE_MIN_RY);
-  const tipX = cx + BUBBLE_TAIL_OFFSET_X;
-  const tipY = cy + BUBBLE_TAIL_OFFSET_Y;
-  // 楕円の媒介変数角(rx*cosθ, ry*sinθ) が tip 方向に来る θ を求める
-  const tipAngle = Math.atan2((tipY - cy) * rx, (tipX - cx) * ry);
-  return { cx, cy, rx, ry, tipX, tipY, tipAngle };
-}
-
-// 楕円本体 → 尾 → 楕円本体 と一筆書きでパスを構築する。
-// 尾は楕円上の p1/p2 から tip まで直線で結ぶ純粋な三角形。先端は完全に尖る。
-function drawSpeechBubblePath(ctx, shape) {
-  const { cx, cy, rx, ry, tipX, tipY, tipAngle } = shape;
-  const a1 = tipAngle - BUBBLE_TAIL_HALF_ANGLE;
-  const a2 = tipAngle + BUBBLE_TAIL_HALF_ANGLE;
-
-  ctx.beginPath();
-  // a2 → a1+2π の長い方を回って戻ってくる(尾の付け根のコードを空ける)
-  ctx.ellipse(cx, cy, rx, ry, 0, a2, a1 + 2 * Math.PI);
-  // 楕円弧の終点 = p1。直線で tip へ。closePath で tip → p2(始点)へ戻り三角形が閉じる。
-  ctx.lineTo(tipX, tipY);
-  ctx.closePath();
-}
-
-function drawBubbleBox(ctx, layer) {
-  const shape = computeBubbleShape(layer);
-  ctx.save();
-  ctx.translate(layer.x, layer.y);
-  drawSpeechBubblePath(ctx, shape);
-  ctx.fillStyle = '#fff';
-  ctx.fill();
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = BUBBLE_BORDER;
-  ctx.lineJoin = 'miter';
-  ctx.miterLimit = 10;
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawMonologueBox(ctx, layer) {
-  const bounds = measureTextLayerBounds(layer);
-  const x = layer.x + bounds.x;
-  const y = layer.y + bounds.y;
-  ctx.fillStyle = '#fff';
-  ctx.fillRect(x, y, bounds.width, bounds.height);
-  ctx.strokeStyle = '#000';
-  ctx.lineWidth = MONOLOGUE_BORDER;
-  const inset = MONOLOGUE_BORDER / 2;
-  ctx.strokeRect(x + inset, y + inset, bounds.width - MONOLOGUE_BORDER, bounds.height - MONOLOGUE_BORDER);
-}
-
-function drawTextLayer(ctx, layer) {
-  if (layer.kind === 'monologue') {
-    drawMonologueBox(ctx, layer);
-  } else if (layer.kind === 'bubble') {
-    drawBubbleBox(ctx, layer);
-  }
-  if (layer.orientation === 'vertical') {
-    drawVerticalTextLayer(ctx, layer);
-  } else {
-    drawHorizontalTextLayer(ctx, layer);
-  }
 }
 
 // === PNG Export & Download ===
