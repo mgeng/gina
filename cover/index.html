@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gina Cover — 20260628-14</title>
+  <title>Gina Cover — 20260628-22</title>
   <link rel="stylesheet" href="../styles/cover.css" />
 </head>
 <body>
@@ -24,13 +24,14 @@
 
     <div id="cvContextMenu" class="cv-context-menu" hidden>
       <button type="button" data-action="text">文字を追加</button>
+      <button type="button" data-action="rect">帯 / 四角を追加</button>
       <button type="button" data-action="image">画像 / ロゴを追加</button>
     </div>
 
     <aside id="cvInspector" class="cv-inspector" hidden>
+      <div class="cv-resizer" data-cv-resizer></div>
       <div class="cv-insp-head">
         <span>文字スタイル</span>
-        <button id="cvDeleteText" class="cv-btn cv-btn-danger" type="button" title="この文字を削除">削除</button>
       </div>
 
       <label class="cv-row cv-row-block">
@@ -38,7 +39,7 @@
         <textarea id="cvText" class="cv-textarea" rows="3"></textarea>
       </label>
 
-      <label class="cv-row">
+      <label class="cv-row cv-row-block">
         <span>フォント</span>
         <select id="cvFont"></select>
       </label>
@@ -93,14 +94,26 @@
     </aside>
 
     <aside id="cvImageInspector" class="cv-inspector" hidden>
+      <div class="cv-resizer" data-cv-resizer></div>
       <div class="cv-insp-head">
         <span>画像 / ロゴ</span>
-        <button id="cvDeleteImage" class="cv-btn cv-btn-danger" type="button" title="この画像を削除">削除</button>
       </div>
       <label class="cv-row"><span>幅(px)</span><input id="cvImgWidth" type="number" min="8" max="4000" step="1" /></label>
       <label class="cv-row"><span>高さ(px)</span><input id="cvImgHeight" type="number" min="8" max="4000" step="1" /></label>
       <label class="cv-row"><span>縦横比を固定</span><input id="cvImgLockRatio" type="checkbox" checked /></label>
       <p class="cv-hint" style="padding:0;border:0;background:none;">右下の角ハンドルをドラッグでもサイズ変更できます。</p>
+    </aside>
+
+    <aside id="cvRectInspector" class="cv-inspector" hidden>
+      <div class="cv-resizer" data-cv-resizer></div>
+      <div class="cv-insp-head">
+        <span>帯 / 四角</span>
+      </div>
+      <label class="cv-row"><span>色</span><input id="cvRectColor" type="color" /></label>
+      <label class="cv-row"><span>幅(px)</span><input id="cvRectWidth" type="number" min="1" max="4000" step="1" /></label>
+      <label class="cv-row"><span>高さ(px)</span><input id="cvRectHeight" type="number" min="1" max="4000" step="1" /></label>
+      <label class="cv-row"><span>不透明度(%)</span><input id="cvRectOpacity" type="number" min="0" max="100" step="1" /></label>
+      <p class="cv-hint" style="padding:0;border:0;background:none;">Ctrl+←→ で幅、Ctrl+↑↓ で高さを変更できます。</p>
     </aside>
   </div>
 
@@ -112,13 +125,19 @@
       </div>
       <dl class="cv-help-list">
         <dt>背景を追加 / 差し替え</dt><dd>空き領域をダブルクリック</dd>
-        <dt>文字・画像を追加</dt><dd>右クリック（その位置に追加）</dd>
+        <dt>文字・帯・画像を追加</dt><dd>右クリック（その位置に追加）</dd>
         <dt>文字を編集</dt><dd>文字をダブルクリック<br>Enter 確定 / Shift+Enter 改行 / Esc 取消</dd>
         <dt>移動 / 選択</dt><dd>ドラッグで移動・クリックで選択</dd>
+        <dt>微調整移動</dt><dd>矢印キーで 1px ずつ移動</dd>
+        <dt>文字サイズ変更</dt><dd>Ctrl+↑ / Ctrl+↓（文字を選択中）</dd>
+        <dt>帯 / 四角のサイズ変更</dt><dd>Ctrl+←→（幅）/ Ctrl+↑↓（高さ）</dd>
+        <dt>背景の拡大 / 縮小</dt><dd>Ctrl+↑ / Ctrl+↓（何も選択していないとき・はみ出しはトリム）</dd>
+        <dt>削除</dt><dd>Delete / Backspace</dd>
         <dt>画像のリサイズ</dt><dd>右下のハンドルをドラッグ</dd>
         <dt>コピー / ペースト</dt><dd>Ctrl+C / Ctrl+V</dd>
         <dt>保存（.mjcover）</dt><dd>Ctrl+S</dd>
         <dt>開く</dt><dd>Ctrl+O</dd>
+        <dt>JPG 書き出し</dt><dd>Ctrl+Shift+E</dd>
         <dt>このヘルプ</dt><dd>Ctrl+/（Esc で閉じる）</dd>
       </dl>
     </div>

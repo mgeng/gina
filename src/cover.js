@@ -41,12 +41,15 @@ const els = {
   help: document.getElementById('cvHelp'),
   helpClose: document.getElementById('cvHelpClose'),
   inspector: document.getElementById('cvInspector'),
-  deleteText: document.getElementById('cvDeleteText'),
   imageInspector: document.getElementById('cvImageInspector'),
-  deleteImage: document.getElementById('cvDeleteImage'),
   imgWidth: document.getElementById('cvImgWidth'),
   imgHeight: document.getElementById('cvImgHeight'),
   imgLockRatio: document.getElementById('cvImgLockRatio'),
+  rectInspector: document.getElementById('cvRectInspector'),
+  rectColor: document.getElementById('cvRectColor'),
+  rectWidth: document.getElementById('cvRectWidth'),
+  rectHeight: document.getElementById('cvRectHeight'),
+  rectOpacity: document.getElementById('cvRectOpacity'),
   text: document.getElementById('cvText'),
   font: document.getElementById('cvFont'),
   orientation: document.getElementById('cvOrientation'),
@@ -73,6 +76,7 @@ const state = {
   canvasH: CANVAS_SIZE.height,
   bgImage: null,
   bgBlob: null,   // 背景の元バイト列（保存時に再エンコードせずそのまま埋め込む）
+  bgScale: 1,     // 背景の拡大率（1 = cover フィット基準。Ctrl+↑/↓ で調整、はみ出しはトリム）
   layers: [],     // renderer の layer 互換オブジェクト (kind: 'text' | 'image')
   selectedId: null,
   seq: 0,
@@ -150,7 +154,11 @@ function render(withOverlay = true) {
   ctx.fillRect(0, 0, canvasW, canvasH);
   if (state.bgImage) {
     const r = coverRect(state.bgImage.width, state.bgImage.height, canvasW, canvasH);
-    ctx.drawImage(state.bgImage, r.x, r.y, r.w, r.h);
+    const f = state.bgScale || 1;
+    const w = r.w * f;
+    const h = r.h * f;
+    // 中央を基準に拡縮。キャンバス外へはみ出した分は自動的にトリムされる。
+    ctx.drawImage(state.bgImage, (canvasW - w) / 2, (canvasH - h) / 2, w, h);
   } else if (withOverlay) {
     drawBackgroundPlaceholder(canvasW, canvasH);
   }
@@ -161,6 +169,12 @@ function render(withOverlay = true) {
     if (editing && layer.id === editing.id) continue;
     if (layer.kind === 'image') {
       if (layer.img) ctx.drawImage(layer.img, layer.x, layer.y, layer.width, layer.height);
+    } else if (layer.kind === 'rect') {
+      ctx.save();
+      ctx.globalAlpha = typeof layer.opacity === 'number' ? layer.opacity : 1;
+      ctx.fillStyle = layer.color || '#000000';
+      ctx.fillRect(layer.x, layer.y, layer.width, layer.height);
+      ctx.restore();
     } else {
       drawTextLayer(ctx, layer);
     }
@@ -175,7 +189,7 @@ function render(withOverlay = true) {
 
 // レイヤーの矩形（左上x,y,幅,高さ）を返す。文字は measureTextLayerBounds 基準。
 function layerRect(layer) {
-  if (layer.kind === 'image') {
+  if (layer.kind === 'image' || layer.kind === 'rect') {
     return { x: layer.x, y: layer.y, width: layer.width, height: layer.height };
   }
   const b = measureTextLayerBounds(layer);
@@ -200,7 +214,7 @@ function drawSelectionOutline(layer) {
   ctx.setLineDash([8, 6]);
   ctx.strokeRect(r.x, r.y, r.width, r.height);
   ctx.restore();
-  // 画像はリサイズハンドルを描く。
+  // 画像はリサイズハンドルを描く（帯は Ctrl+矢印でサイズ変更）。
   if (layer.kind === 'image') {
     const hr = handleRect(layer);
     ctx.save();
@@ -219,7 +233,7 @@ function makeTextLayer(x, y) {
     text: 'タイトル',
     x: Math.round(x),
     y: Math.round(y),
-    font: 'RocknRollOne',
+    font: 'ShipporiMinchoB',
     size: Math.round(state.canvasW * 0.07),
     lineHeight: 1.1,
     orientation: 'vertical',
@@ -262,6 +276,27 @@ function addImageLayer(img, cx, cy, blob) {
   render();
 }
 
+// 帯 / 単色四角を追加。既定は全幅の横帯（クリック位置 y を中心に）。
+function addRectLayer(cx, cy) {
+  state.seq += 1;
+  const w = state.canvasW;
+  const h = Math.round(state.canvasW * 0.14);
+  const layer = {
+    id: `cv_${state.seq}`,
+    kind: 'rect',
+    x: 0,
+    y: Math.round(cy - h / 2),
+    width: w,
+    height: h,
+    color: '#000000',
+    opacity: 1,
+  };
+  state.layers.push(layer);
+  state.selectedId = layer.id;
+  syncInspector();
+  render();
+}
+
 function deleteSelected() {
   if (!state.selectedId) return;
   state.layers = state.layers.filter((l) => l.id !== state.selectedId);
@@ -270,16 +305,75 @@ function deleteSelected() {
   render();
 }
 
+// 矢印キーで選択レイヤーを 1px 移動。
+function nudgeSelected(arrowKey) {
+  const sel = getSelected();
+  if (!sel) return false;
+  if (arrowKey === 'ArrowLeft') sel.x -= 1;
+  else if (arrowKey === 'ArrowRight') sel.x += 1;
+  else if (arrowKey === 'ArrowUp') sel.y -= 1;
+  else if (arrowKey === 'ArrowDown') sel.y += 1;
+  render();
+  return true;
+}
+
+// Ctrl+↑/↓ で選択中テキストのサイズを変更。
+function nudgeSize(delta) {
+  const sel = getSelected();
+  if (!sel || sel.kind !== 'text') return false;
+  sel.size = clampNum(sel.size + delta, 8, 600, sel.size);
+  syncInspector();
+  render();
+  return true;
+}
+
+// Ctrl+矢印で選択中の帯/四角のサイズを変更（←→ で幅、↑↓ で高さ）。
+const RECT_RESIZE_STEP = 10;
+function nudgeRectSize(arrowKey) {
+  const sel = getSelected();
+  if (!sel || sel.kind !== 'rect') return false;
+  if (arrowKey === 'ArrowRight') sel.width = clampNum(sel.width + RECT_RESIZE_STEP, 1, 4000, sel.width);
+  else if (arrowKey === 'ArrowLeft') sel.width = clampNum(sel.width - RECT_RESIZE_STEP, 1, 4000, sel.width);
+  else if (arrowKey === 'ArrowUp') sel.height = clampNum(sel.height + RECT_RESIZE_STEP, 1, 4000, sel.height);
+  else if (arrowKey === 'ArrowDown') sel.height = clampNum(sel.height - RECT_RESIZE_STEP, 1, 4000, sel.height);
+  else return false;
+  syncInspector();
+  render();
+  return true;
+}
+
+// 何も選択していないときの Ctrl+↑/↓ で背景画像を拡大/縮小（中央基準、はみ出しはトリム）。
+const BG_SCALE_STEP = 1.05;
+const BG_SCALE_MIN = 0.1;
+const BG_SCALE_MAX = 8;
+function nudgeBgScale(dir) {
+  if (state.selectedId || !state.bgImage) return false;
+  const next = (state.bgScale || 1) * (dir > 0 ? BG_SCALE_STEP : 1 / BG_SCALE_STEP);
+  state.bgScale = Math.min(BG_SCALE_MAX, Math.max(BG_SCALE_MIN, next));
+  render();
+  return true;
+}
+
 // === インスペクタ ⇄ レイヤー 同期 ===
 function syncInspector() {
   const sel = getSelected();
   const isImage = sel && sel.kind === 'image';
-  els.inspector.hidden = !sel || isImage;
+  const isRect = sel && sel.kind === 'rect';
+  const isText = sel && sel.kind === 'text';
+  els.inspector.hidden = !isText;
   els.imageInspector.hidden = !isImage;
+  els.rectInspector.hidden = !isRect;
   if (!sel) return;
   if (isImage) {
     els.imgWidth.value = Math.round(sel.width);
     els.imgHeight.value = Math.round(sel.height);
+    return;
+  }
+  if (isRect) {
+    els.rectColor.value = toHex(sel.color, '#000000');
+    els.rectWidth.value = Math.round(sel.width);
+    els.rectHeight.value = Math.round(sel.height);
+    els.rectOpacity.value = Math.round((typeof sel.opacity === 'number' ? sel.opacity : 1) * 100);
     return;
   }
   els.text.value = sel.text;
@@ -306,7 +400,7 @@ function syncInspector() {
 // インスペクタの入力値を選択レイヤーへ反映。
 function applyInspector() {
   const sel = getSelected();
-  if (!sel || sel.kind === 'image') return;
+  if (!sel || sel.kind !== 'text') return;
   sel.text = els.text.value || ' ';
   sel.font = els.font.value;
   sel.orientation = els.orientation.value;
@@ -371,7 +465,7 @@ els.canvas.addEventListener('pointerdown', (e) => {
   const p = clientToCanvas(e.clientX, e.clientY);
   const sel = getSelected();
 
-  // 選択中の画像なら、まず右下リサイズハンドルを判定。
+  // 選択中の画像なら、まず右下リサイズハンドルを判定（帯は Ctrl+矢印でサイズ変更）。
   if (sel && sel.kind === 'image' && pointInRect(p.x, p.y, handleRect(sel))) {
     drag = { mode: 'resize', startW: sel.width, startH: sel.height, startX: p.x, startY: p.y, ratio: sel.width / sel.height };
     els.canvas.setPointerCapture(e.pointerId);
@@ -400,7 +494,8 @@ els.canvas.addEventListener('pointermove', (e) => {
   const p = clientToCanvas(e.clientX, e.clientY);
   if (drag.mode === 'resize') {
     let w = Math.max(8, drag.startW + (p.x - drag.startX));
-    let h = els.imgLockRatio.checked ? w / drag.ratio : Math.max(8, drag.startH + (p.y - drag.startY));
+    const lock = sel.kind === 'image' && els.imgLockRatio.checked;
+    let h = lock ? w / drag.ratio : Math.max(8, drag.startH + (p.y - drag.startY));
     sel.width = Math.round(w);
     sel.height = Math.round(h);
     syncInspector();
@@ -494,13 +589,14 @@ els.canvas.addEventListener('dblclick', (e) => {
     startTextEdit(hit);
     return;
   }
-  if (hit && hit.kind === 'image') return; // 画像の上では何もしない
+  if (hit) return; // 画像・帯の上では何もしない
   els.bgInput.click(); // 空き領域 → 背景を追加 / 差し替え
 });
 els.bgInput.addEventListener('change', () => {
   loadImageFile(els.bgInput.files && els.bgInput.files[0], (img, file) => {
     state.bgImage = img;
     state.bgBlob = file || null;
+    state.bgScale = 1; // 新しい背景は cover フィットから始める
     render();
   });
   els.bgInput.value = '';
@@ -530,6 +626,8 @@ els.contextMenu.addEventListener('click', (e) => {
   hideContextMenu();
   if (action === 'text') {
     addText(pendingPoint.x, pendingPoint.y);
+  } else if (action === 'rect') {
+    addRectLayer(pendingPoint.x, pendingPoint.y);
   } else if (action === 'image') {
     const pt = { x: pendingPoint.x, y: pendingPoint.y };
     els.imageInput.onchange = () => {
@@ -539,9 +637,6 @@ els.contextMenu.addEventListener('click', (e) => {
     els.imageInput.click();
   }
 });
-
-els.deleteText.addEventListener('click', deleteSelected);
-els.deleteImage.addEventListener('click', deleteSelected);
 
 // 画像インスペクタ（幅/高さ）の反映。
 function applyImageInspector() {
@@ -564,6 +659,21 @@ function applyImageInspector() {
 [els.imgWidth, els.imgHeight, els.imgLockRatio].forEach((el) => {
   el.addEventListener('input', applyImageInspector);
   el.addEventListener('change', applyImageInspector);
+});
+
+// 帯 / 四角インスペクタの反映。
+function applyRectInspector() {
+  const sel = getSelected();
+  if (!sel || sel.kind !== 'rect') return;
+  sel.color = els.rectColor.value;
+  sel.width = clampNum(els.rectWidth.value, 1, 4000, sel.width);
+  sel.height = clampNum(els.rectHeight.value, 1, 4000, sel.height);
+  sel.opacity = clampNum(els.rectOpacity.value, 0, 100, 100) / 100;
+  render();
+}
+[els.rectColor, els.rectWidth, els.rectHeight, els.rectOpacity].forEach((el) => {
+  el.addEventListener('input', applyRectInspector);
+  el.addEventListener('change', applyRectInspector);
 });
 
 // インスペクタの入力は即時反映。
@@ -655,7 +765,7 @@ async function buildCoverBlob() {
   }
   zip.file('manifest.json', JSON.stringify({ format: 'gina-cover', version: '1' }));
   zip.file('cover.json', JSON.stringify({
-    width: state.canvasW, height: state.canvasH, background, layers,
+    width: state.canvasW, height: state.canvasH, background, bgScale: state.bgScale, layers,
   }, null, 2));
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }
@@ -728,6 +838,7 @@ async function loadCoverFile(file) {
   // 状態をリセットしてから流し込む。
   state.bgImage = null;
   state.bgBlob = null;
+  state.bgScale = (typeof doc.bgScale === 'number' && doc.bgScale > 0) ? doc.bgScale : 1;
   state.layers = [];
   state.selectedId = null;
   state.seq = 0;
@@ -754,6 +865,8 @@ async function loadCoverFile(file) {
         natW: l.natW || img.width, natH: l.natH || img.height,
         x: l.x, y: l.y, width: l.width, height: l.height,
       });
+    } else if (l.kind === 'rect') {
+      state.layers.push({ ...l, kind: 'rect' });
     } else {
       state.layers.push({ ...l, kind: 'text' });
     }
@@ -788,34 +901,101 @@ function isEditableTarget(el) {
   return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || el.isContentEditable;
 }
 
+function isArrowKey(k) {
+  return k === 'ArrowLeft' || k === 'ArrowRight' || k === 'ArrowUp' || k === 'ArrowDown';
+}
+
 window.addEventListener('keydown', (e) => {
   // ヘルプ表示中は Esc で閉じる（修飾キー不要）。
   if (e.key === 'Escape' && !els.help.hidden) { e.preventDefault(); hideHelp(); return; }
-  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-  const key = e.key.toLowerCase();
-  if (key === '/') { e.preventDefault(); toggleHelp(); return; }
-  if (key === 's') { e.preventDefault(); saveCover(); return; }
-  if (key === 'o') { e.preventDefault(); els.openInput.click(); return; }
-  // テキスト入力中の C/V は通常のコピペに任せる。
-  if (isEditableTarget(document.activeElement)) return;
-  if (key === 'c') { if (copySelected()) e.preventDefault(); }
-  else if (key === 'v') { if (pasteClipboard()) e.preventDefault(); }
+
+  const editable = isEditableTarget(document.activeElement);
+
+  // === Ctrl / Cmd 系（Alt は対象外） ===
+  if ((e.ctrlKey || e.metaKey) && !e.altKey) {
+    const key = e.key.toLowerCase();
+    if (key === '/') { e.preventDefault(); toggleHelp(); return; }
+    if (e.shiftKey && key === 'e') { e.preventDefault(); exportImage(); return; }
+    if (key === 's') { e.preventDefault(); saveCover(); return; }
+    if (key === 'o') { e.preventDefault(); els.openInput.click(); return; }
+    // Ctrl+矢印（入力欄フォーカス時は無効）:
+    //   帯選択中  → ←→で幅 / ↑↓で高さ
+    //   文字選択中 → ↑↓でサイズ
+    //   未選択    → ↑↓で背景の拡大/縮小
+    if (isArrowKey(e.key) && !editable) {
+      if (nudgeRectSize(e.key)) { e.preventDefault(); return; }
+      if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+        const dir = e.key === 'ArrowUp' ? 1 : -1;
+        if (nudgeSize(dir) || nudgeBgScale(dir)) e.preventDefault();
+      }
+      return;
+    }
+    // テキスト入力中の C/V は通常のコピペに任せる。
+    if (editable) return;
+    if (key === 'c') { if (copySelected()) e.preventDefault(); }
+    else if (key === 'v') { if (pasteClipboard()) e.preventDefault(); }
+    return;
+  }
+
+  // === 修飾なし（入力欄フォーカス中は無視） ===
+  if (editable) return;
+  // 矢印キーで 1px 移動。
+  if (isArrowKey(e.key)) {
+    if (nudgeSelected(e.key)) e.preventDefault();
+    return;
+  }
+  // Delete / Backspace で選択レイヤーを削除。
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    if (state.selectedId) { e.preventDefault(); deleteSelected(); }
+  }
 });
 
-// === 書き出し ===
-els.exportBtn.addEventListener('click', async () => {
+// === インスペクタ幅のドラッグ可変 ===
+(function setupInspectorResize() {
+  const MIN_W = 220;
+  const MAX_W = 640;
+  let resizing = false;
+
+  function onMove(e) {
+    if (!resizing) return;
+    // インスペクタは右端固定なので、カーソルから右端までの距離が幅。
+    const w = Math.min(MAX_W, Math.max(MIN_W, window.innerWidth - e.clientX));
+    document.documentElement.style.setProperty('--cv-insp-w', `${Math.round(w)}px`);
+    render(); // 表示スケールが変わるのでキャンバスを描き直す
+  }
+  function onUp() {
+    if (!resizing) return;
+    resizing = false;
+    document.body.classList.remove('cv-resizing');
+    window.removeEventListener('pointermove', onMove);
+    window.removeEventListener('pointerup', onUp);
+  }
+  document.addEventListener('pointerdown', (e) => {
+    if (!e.target || !e.target.matches('[data-cv-resizer]')) return;
+    e.preventDefault();
+    resizing = true;
+    document.body.classList.add('cv-resizing');
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+  });
+})();
+
+// === 書き出し（JPG） ===
+const EXPORT_JPEG_QUALITY = 0.92;
+async function exportImage() {
   // フォント描画ズレ防止に念のため読み込み完了を待つ。
   if (document.fonts && document.fonts.ready) {
     try { await document.fonts.ready; } catch (_) { /* noop */ }
   }
   render(false); // 選択枠を含めずに描画
-  const url = els.canvas.toDataURL('image/png');
+  const url = els.canvas.toDataURL('image/jpeg', EXPORT_JPEG_QUALITY);
   render(true);  // 表示を元に戻す
   const a = document.createElement('a');
   a.href = url;
-  a.download = 'cover.png';
+  a.download = 'cover.jpg';
   a.click();
-});
+}
+els.exportBtn.addEventListener('click', exportImage);
 
 // 表示領域変化に追従。
 window.addEventListener('resize', () => render());

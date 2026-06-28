@@ -90,12 +90,26 @@ body {
 }
 
 .cv-inspector {
-  flex: 0 0 300px;
+  position: relative;
+  flex: 0 0 var(--cv-insp-w, 300px);
   background: var(--cv-panel);
   border-left: 1px solid var(--cv-border);
   padding: 14px;
   overflow-y: auto;
 }
+
+/* 左端をドラッグしてインスペクタ幅を可変にするハンドル */
+.cv-resizer {
+  position: absolute;
+  left: -3px;
+  top: 0;
+  width: 7px;
+  height: 100%;
+  cursor: ew-resize;
+  z-index: 5;
+}
+.cv-resizer:hover { background: rgba(76, 141, 255, 0.35); }
+body.cv-resizing { cursor: ew-resize; user-select: none; }
 
 .cv-insp-head {
   display: flex;
@@ -116,6 +130,7 @@ body {
 .cv-row > span { color: var(--cv-muted); flex: 0 0 auto; }
 .cv-row-block { flex-direction: column; align-items: stretch; }
 .cv-row-block > span { margin-bottom: 4px; }
+.cv-row-block select { width: 100%; }
 
 .cv-row input[type="number"],
 .cv-row select {
