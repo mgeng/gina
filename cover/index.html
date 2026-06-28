@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gina Cover — 20260628-14</title>
+  <link rel="stylesheet" href="../styles/cover.css" />
+</head>
+<body>
+  <header class="cv-header">
+    <h1 class="cv-title">Gina Cover — 表紙作成</h1>
+    <div class="cv-actions">
+      <input type="file" id="cvBgInput" accept="image/*" hidden />
+      <input type="file" id="cvImageInput" accept="image/*" hidden />
+      <input type="file" id="cvOpenInput" accept=".mjcover,application/zip" hidden />
+      <button id="cvExport" class="cv-btn cv-btn-primary" type="button">Export</button>
+    </div>
+  </header>
+
+  <div class="cv-main">
+    <div id="cvStage" class="cv-stage">
+      <canvas id="cvCanvas" class="cv-canvas"></canvas>
+    </div>
+
+    <div id="cvContextMenu" class="cv-context-menu" hidden>
+      <button type="button" data-action="text">文字を追加</button>
+      <button type="button" data-action="image">画像 / ロゴを追加</button>
+    </div>
+
+    <aside id="cvInspector" class="cv-inspector" hidden>
+      <div class="cv-insp-head">
+        <span>文字スタイル</span>
+        <button id="cvDeleteText" class="cv-btn cv-btn-danger" type="button" title="この文字を削除">削除</button>
+      </div>
+
+      <label class="cv-row cv-row-block">
+        <span>テキスト（改行で行/列を分割）</span>
+        <textarea id="cvText" class="cv-textarea" rows="3"></textarea>
+      </label>
+
+      <label class="cv-row">
+        <span>フォント</span>
+        <select id="cvFont"></select>
+      </label>
+
+      <label class="cv-row">
+        <span>組方向</span>
+        <select id="cvOrientation">
+          <option value="vertical">縦書き</option>
+          <option value="horizontal">横書き</option>
+        </select>
+      </label>
+
+      <label class="cv-row">
+        <span>サイズ</span>
+        <input id="cvSize" type="number" min="8" max="600" step="1" />
+      </label>
+
+      <label class="cv-row">
+        <span>行間</span>
+        <input id="cvLineHeight" type="number" min="0.5" max="3" step="0.05" />
+      </label>
+
+      <label class="cv-row">
+        <span>文字色</span>
+        <input id="cvColor" type="color" />
+      </label>
+
+      <fieldset class="cv-fieldset">
+        <legend>
+          <label class="cv-legend-toggle"><input id="cvGradEnable" type="checkbox" /> グラデーション</label>
+        </legend>
+        <label class="cv-row"><span>開始</span><input id="cvGradFrom" type="color" /></label>
+        <label class="cv-row"><span>終了</span><input id="cvGradTo" type="color" /></label>
+        <label class="cv-row"><span>角度</span><input id="cvGradAngle" type="number" min="0" max="360" step="1" /></label>
+      </fieldset>
+
+      <fieldset class="cv-fieldset">
+        <legend>
+          <label class="cv-legend-toggle"><input id="cvGlowEnable" type="checkbox" /> グロー（発光）</label>
+        </legend>
+        <label class="cv-row"><span>発光色</span><input id="cvGlowColor" type="color" /></label>
+        <label class="cv-row"><span>強さ</span><input id="cvGlowBlur" type="number" min="0" max="80" step="1" /></label>
+      </fieldset>
+
+      <fieldset class="cv-fieldset">
+        <legend>
+          <label class="cv-legend-toggle"><input id="cvStrokeEnable" type="checkbox" /> フチ取り</label>
+        </legend>
+        <label class="cv-row"><span>フチ色</span><input id="cvStrokeColor" type="color" /></label>
+        <label class="cv-row"><span>太さ</span><input id="cvStrokeWidth" type="number" min="0" max="40" step="0.5" /></label>
+      </fieldset>
+    </aside>
+
+    <aside id="cvImageInspector" class="cv-inspector" hidden>
+      <div class="cv-insp-head">
+        <span>画像 / ロゴ</span>
+        <button id="cvDeleteImage" class="cv-btn cv-btn-danger" type="button" title="この画像を削除">削除</button>
+      </div>
+      <label class="cv-row"><span>幅(px)</span><input id="cvImgWidth" type="number" min="8" max="4000" step="1" /></label>
+      <label class="cv-row"><span>高さ(px)</span><input id="cvImgHeight" type="number" min="8" max="4000" step="1" /></label>
+      <label class="cv-row"><span>縦横比を固定</span><input id="cvImgLockRatio" type="checkbox" checked /></label>
+      <p class="cv-hint" style="padding:0;border:0;background:none;">右下の角ハンドルをドラッグでもサイズ変更できます。</p>
+    </aside>
+  </div>
+
+  <div id="cvHelp" class="cv-help" hidden>
+    <div class="cv-help-panel" role="dialog" aria-modal="true" aria-label="ショートカット & 操作">
+      <div class="cv-help-head">
+        <span>ショートカット & 操作</span>
+        <button id="cvHelpClose" class="cv-help-close" type="button" aria-label="閉じる">×</button>
+      </div>
+      <dl class="cv-help-list">
+        <dt>背景を追加 / 差し替え</dt><dd>空き領域をダブルクリック</dd>
+        <dt>文字・画像を追加</dt><dd>右クリック（その位置に追加）</dd>
+        <dt>文字を編集</dt><dd>文字をダブルクリック<br>Enter 確定 / Shift+Enter 改行 / Esc 取消</dd>
+        <dt>移動 / 選択</dt><dd>ドラッグで移動・クリックで選択</dd>
+        <dt>画像のリサイズ</dt><dd>右下のハンドルをドラッグ</dd>
+        <dt>コピー / ペースト</dt><dd>Ctrl+C / Ctrl+V</dd>
+        <dt>保存（.mjcover）</dt><dd>Ctrl+S</dd>
+        <dt>開く</dt><dd>Ctrl+O</dd>
+        <dt>このヘルプ</dt><dd>Ctrl+/（Esc で閉じる）</dd>
+      </dl>
+    </div>
+  </div>
+
+  <script src="../assets/vendor/jszip.min.js" defer></script>
+  <script src="../src/core/renderer.js" defer></script>
+  <script src="../src/cover.js" defer></script>
+</body>
+</html>

@@ -39,9 +39,6 @@
 利用および再配布が認められています（利用分野の制限はありません）。各フォントの
 ライセンス全文は `assets/fonts/OFL-*.txt` に同梱しています。
 
-- `assets/fonts/DelaGothicOne-Regular.ttf` — **Dela Gothic One**
-  - 著作権: Copyright The Dela Gothic Project Authors — <https://github.com/syakuzen/DelaGothic>
-  - ライセンス: `assets/fonts/OFL-DelaGothicOne.txt`
 - `assets/fonts/RocknRollOne-Regular.ttf` — **RocknRoll One**
   - 著作権: Copyright The RocknRoll One Project Authors — <https://github.com/fontdasu/RocknRollOne>
   - ライセンス: `assets/fonts/OFL-RocknRollOne.txt`

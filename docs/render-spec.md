@@ -118,7 +118,7 @@ v0.1 では `"normal"` 以外を指定すると stderr にエラーを出して 
   "x": 200,
   "y": 300,
   "writing": "horizontal",
-  "font": "DelaGothicOne",
+  "font": "RocknRollOne",
   "fontSize": 48,
   "lineHeight": 1.1,
   "color": "#cc0000",
@@ -179,7 +179,6 @@ v0.1 では未実装。指定すると stderr に警告を出してその要素�
 | `"GenEiAntiquePv6"` | 源暎アンチック Pv6（標準セリフ）| `assets/fonts/GenEiAntiquePv6-M.ttf` |
 | `"GenEiAntiqueNv6"` | 源暎アンチック Nv6 | `assets/fonts/GenEiAntiqueNv6-M.ttf` |
 | `"ChikaraDzuyoku"` | 851チカラヅヨク かなA | `assets/fonts/851CHIKARA-DZUYOKU_kanaA_004.ttf` |
-| `"DelaGothicOne"` | Dela Gothic One（極太見出し）| `assets/fonts/DelaGothicOne-Regular.ttf` |
 | `"RocknRollOne"` | RocknRoll One（丸ゴシック）| `assets/fonts/RocknRollOne-Regular.ttf` |
 | `"ShipporiMinchoB"` | しっぽり明朝 B（上品な明朝）| `assets/fonts/ShipporiMincho-Bold.ttf` |
 | `"YujiSyuku"` | Yuji Syuku（筆書き楷書）| `assets/fonts/YujiSyuku-Regular.ttf` |
@@ -297,7 +296,7 @@ gina-render batch page1.json page2.json ...
       "text": "ドーン",
       "x": 300,
       "y": 500,
-      "font": "DelaGothicOne",
+      "font": "RocknRollOne",
       "fontSize": 64,
       "color": "#ffffff",
       "strokeColor": "#000000",

@@ -29,7 +29,6 @@ const FONTS = [
   { name: 'GenEiAntiqueNv6', label: '源暎アンチック Nv6', file: 'assets/fonts/GenEiAntiqueNv6-M.ttf' },
   { name: 'ChikaraDzuyoku', label: '851チカラヅヨク かなA', file: 'assets/fonts/851CHIKARA-DZUYOKU_kanaA_004.ttf' },
   // 表紙カバー向け(SIL OFL / 商用利用可)
-  { name: 'DelaGothicOne', label: 'Dela Gothic One（極太見出し）', file: 'assets/fonts/DelaGothicOne-Regular.ttf' },
   { name: 'RocknRollOne', label: 'RocknRoll One（丸太ゴシック）', file: 'assets/fonts/RocknRollOne-Regular.ttf' },
   { name: 'ShipporiMinchoB', label: 'しっぽり明朝 B（上品な明朝）', file: 'assets/fonts/ShipporiMincho-Bold.ttf' },
   { name: 'YujiSyuku', label: 'Yuji Syuku（筆書き楷書）', file: 'assets/fonts/YujiSyuku-Regular.ttf' },
