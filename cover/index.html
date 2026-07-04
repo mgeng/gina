@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Gina Cover — 20260628-22</title>
+  <title>Gina Cover — 20260629-01</title>
   <link rel="stylesheet" href="../styles/cover.css" />
 </head>
 <body>
@@ -115,6 +115,17 @@
       <label class="cv-row"><span>不透明度(%)</span><input id="cvRectOpacity" type="number" min="0" max="100" step="1" /></label>
       <p class="cv-hint" style="padding:0;border:0;background:none;">Ctrl+←→ で幅、Ctrl+↑↓ で高さを変更できます。</p>
     </aside>
+
+    <aside id="cvBgInspector" class="cv-inspector" hidden>
+      <div class="cv-resizer" data-cv-resizer></div>
+      <div class="cv-insp-head">
+        <span>背景画像</span>
+      </div>
+      <label class="cv-row"><span>拡大率(%)</span><input id="cvBgScale" type="number" min="10" max="800" step="1" /></label>
+      <label class="cv-row"><span>位置X(px)</span><input id="cvBgOffsetX" type="number" min="-10000" max="10000" step="1" /></label>
+      <label class="cv-row"><span>位置Y(px)</span><input id="cvBgOffsetY" type="number" min="-10000" max="10000" step="1" /></label>
+      <p class="cv-hint" style="padding:0;border:0;background:none;">ドラッグ / 矢印キーで移動、Ctrl+↑↓ で拡大・縮小。Esc で選択解除。はみ出しはトリムされます。</p>
+    </aside>
   </div>
 
   <div id="cvHelp" class="cv-help" hidden>
@@ -131,7 +142,10 @@
         <dt>微調整移動</dt><dd>矢印キーで 1px ずつ移動</dd>
         <dt>文字サイズ変更</dt><dd>Ctrl+↑ / Ctrl+↓（文字を選択中）</dd>
         <dt>帯 / 四角のサイズ変更</dt><dd>Ctrl+←→（幅）/ Ctrl+↑↓（高さ）</dd>
-        <dt>背景の拡大 / 縮小</dt><dd>Ctrl+↑ / Ctrl+↓（何も選択していないとき・はみ出しはトリム）</dd>
+        <dt>背景を選択</dt><dd>空き領域をクリック（背景画像があるとき）</dd>
+        <dt>背景の移動</dt><dd>背景選択中にドラッグ / 矢印キーで 1px</dd>
+        <dt>背景の拡大 / 縮小</dt><dd>Ctrl+↑ / Ctrl+↓（背景選択中 or 何も選択していないとき・はみ出しはトリム）</dd>
+        <dt>選択解除</dt><dd>Esc</dd>
         <dt>削除</dt><dd>Delete / Backspace</dd>
         <dt>画像のリサイズ</dt><dd>右下のハンドルをドラッグ</dd>
         <dt>コピー / ペースト</dt><dd>Ctrl+C / Ctrl+V</dd>

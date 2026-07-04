@@ -45,6 +45,10 @@ const els = {
   imgWidth: document.getElementById('cvImgWidth'),
   imgHeight: document.getElementById('cvImgHeight'),
   imgLockRatio: document.getElementById('cvImgLockRatio'),
+  bgInspector: document.getElementById('cvBgInspector'),
+  bgScale: document.getElementById('cvBgScale'),
+  bgOffsetX: document.getElementById('cvBgOffsetX'),
+  bgOffsetY: document.getElementById('cvBgOffsetY'),
   rectInspector: document.getElementById('cvRectInspector'),
   rectColor: document.getElementById('cvRectColor'),
   rectWidth: document.getElementById('cvRectWidth'),
@@ -77,6 +81,8 @@ const state = {
   bgImage: null,
   bgBlob: null,   // 背景の元バイト列（保存時に再エンコードせずそのまま埋め込む）
   bgScale: 1,     // 背景の拡大率（1 = cover フィット基準。Ctrl+↑/↓ で調整、はみ出しはトリム）
+  bgOffsetX: 0,   // 背景の中央基準オフセット（背景選択中にドラッグ/矢印で移動）
+  bgOffsetY: 0,
   layers: [],     // renderer の layer 互換オブジェクト (kind: 'text' | 'image')
   selectedId: null,
   seq: 0,
@@ -132,8 +138,29 @@ function drawBackgroundPlaceholder(w, h) {
 }
 
 // === 描画 ===
+// 背景は layers 配列の外（state.bgImage）だが、選択時はこの sentinel id を selectedId に入れる。
+const BG_ID = '__bg__';
+function isBgSelected() {
+  return state.selectedId === BG_ID && !!state.bgImage;
+}
+
 function getSelected() {
   return state.layers.find((l) => l.id === state.selectedId) || null;
+}
+
+// 背景画像の描画矩形（拡大率 + 中央基準オフセット込み）。背景なしなら null。
+function bgDrawRect() {
+  if (!state.bgImage) return null;
+  const r = coverRect(state.bgImage.width, state.bgImage.height, state.canvasW, state.canvasH);
+  const f = state.bgScale || 1;
+  const w = r.w * f;
+  const h = r.h * f;
+  return {
+    x: (state.canvasW - w) / 2 + (state.bgOffsetX || 0),
+    y: (state.canvasH - h) / 2 + (state.bgOffsetY || 0),
+    width: w,
+    height: h,
+  };
 }
 
 function render(withOverlay = true) {
@@ -153,12 +180,9 @@ function render(withOverlay = true) {
   ctx.fillStyle = '#fff';
   ctx.fillRect(0, 0, canvasW, canvasH);
   if (state.bgImage) {
-    const r = coverRect(state.bgImage.width, state.bgImage.height, canvasW, canvasH);
-    const f = state.bgScale || 1;
-    const w = r.w * f;
-    const h = r.h * f;
-    // 中央を基準に拡縮。キャンバス外へはみ出した分は自動的にトリムされる。
-    ctx.drawImage(state.bgImage, (canvasW - w) / 2, (canvasH - h) / 2, w, h);
+    const br = bgDrawRect();
+    // 中央＋オフセット基準に拡縮。キャンバス外へはみ出した分は自動的にトリムされる。
+    ctx.drawImage(state.bgImage, br.x, br.y, br.width, br.height);
   } else if (withOverlay) {
     drawBackgroundPlaceholder(canvasW, canvasH);
   }
@@ -182,8 +206,12 @@ function render(withOverlay = true) {
 
   // 選択枠（書き出し時・編集中の対象は描かない）
   if (withOverlay) {
-    const sel = getSelected();
-    if (sel && (!editing || sel.id !== editing.id)) drawSelectionOutline(sel);
+    if (isBgSelected()) {
+      drawBgOutline();
+    } else {
+      const sel = getSelected();
+      if (sel && (!editing || sel.id !== editing.id)) drawSelectionOutline(sel);
+    }
   }
 }
 
@@ -222,6 +250,19 @@ function drawSelectionOutline(layer) {
     ctx.fillRect(hr.x, hr.y, hr.w, hr.h);
     ctx.restore();
   }
+}
+
+// 背景選択枠（背景の描画矩形を破線で示す。はみ出し部分も含めて全体を描く）。
+function drawBgOutline() {
+  const br = bgDrawRect();
+  if (!br) return;
+  const lw = Math.max(state.canvasW / els.canvas.clientWidth, 1) * 1.5;
+  ctx.save();
+  ctx.strokeStyle = '#ff9a3c';
+  ctx.lineWidth = lw;
+  ctx.setLineDash([8, 6]);
+  ctx.strokeRect(br.x, br.y, br.width, br.height);
+  ctx.restore();
 }
 
 // === 文字レイヤー操作 ===
@@ -298,7 +339,7 @@ function addRectLayer(cx, cy) {
 }
 
 function deleteSelected() {
-  if (!state.selectedId) return;
+  if (!state.selectedId || isBgSelected()) return; // 背景はレイヤーではないので削除しない
   state.layers = state.layers.filter((l) => l.id !== state.selectedId);
   state.selectedId = null;
   syncInspector();
@@ -307,6 +348,15 @@ function deleteSelected() {
 
 // 矢印キーで選択レイヤーを 1px 移動。
 function nudgeSelected(arrowKey) {
+  if (isBgSelected()) {
+    if (arrowKey === 'ArrowLeft') state.bgOffsetX -= 1;
+    else if (arrowKey === 'ArrowRight') state.bgOffsetX += 1;
+    else if (arrowKey === 'ArrowUp') state.bgOffsetY -= 1;
+    else if (arrowKey === 'ArrowDown') state.bgOffsetY += 1;
+    syncInspector();
+    render();
+    return true;
+  }
   const sel = getSelected();
   if (!sel) return false;
   if (arrowKey === 'ArrowLeft') sel.x -= 1;
@@ -347,15 +397,19 @@ const BG_SCALE_STEP = 1.05;
 const BG_SCALE_MIN = 0.1;
 const BG_SCALE_MAX = 8;
 function nudgeBgScale(dir) {
-  if (state.selectedId || !state.bgImage) return false;
+  if (!state.bgImage) return false;
+  // 背景選択中、または何も選択していないときに有効。
+  if (state.selectedId && !isBgSelected()) return false;
   const next = (state.bgScale || 1) * (dir > 0 ? BG_SCALE_STEP : 1 / BG_SCALE_STEP);
   state.bgScale = Math.min(BG_SCALE_MAX, Math.max(BG_SCALE_MIN, next));
+  syncInspector();
   render();
   return true;
 }
 
 // === インスペクタ ⇄ レイヤー 同期 ===
 function syncInspector() {
+  const isBg = isBgSelected();
   const sel = getSelected();
   const isImage = sel && sel.kind === 'image';
   const isRect = sel && sel.kind === 'rect';
@@ -363,6 +417,13 @@ function syncInspector() {
   els.inspector.hidden = !isText;
   els.imageInspector.hidden = !isImage;
   els.rectInspector.hidden = !isRect;
+  els.bgInspector.hidden = !isBg;
+  if (isBg) {
+    els.bgScale.value = Math.round((state.bgScale || 1) * 100);
+    els.bgOffsetX.value = Math.round(state.bgOffsetX || 0);
+    els.bgOffsetY.value = Math.round(state.bgOffsetY || 0);
+    return;
+  }
   if (!sel) return;
   if (isImage) {
     els.imgWidth.value = Math.round(sel.width);
@@ -481,6 +542,14 @@ els.canvas.addEventListener('pointerdown', (e) => {
     els.canvas.style.cursor = 'grabbing';
     syncInspector();
     render();
+  } else if (state.bgImage) {
+    // 空き領域 → 背景を選択し、そのままドラッグでパン。
+    state.selectedId = BG_ID;
+    drag = { mode: 'bgpan', startOX: state.bgOffsetX || 0, startOY: state.bgOffsetY || 0, startX: p.x, startY: p.y };
+    els.canvas.setPointerCapture(e.pointerId);
+    els.canvas.style.cursor = 'grabbing';
+    syncInspector();
+    render();
   } else if (state.selectedId) {
     state.selectedId = null;
     syncInspector();
@@ -489,9 +558,16 @@ els.canvas.addEventListener('pointerdown', (e) => {
 });
 els.canvas.addEventListener('pointermove', (e) => {
   if (!drag) return;
+  const p = clientToCanvas(e.clientX, e.clientY);
+  if (drag.mode === 'bgpan') {
+    state.bgOffsetX = Math.round(drag.startOX + (p.x - drag.startX));
+    state.bgOffsetY = Math.round(drag.startOY + (p.y - drag.startY));
+    syncInspector();
+    render();
+    return;
+  }
   const sel = getSelected();
   if (!sel) return;
-  const p = clientToCanvas(e.clientX, e.clientY);
   if (drag.mode === 'resize') {
     let w = Math.max(8, drag.startW + (p.x - drag.startX));
     const lock = sel.kind === 'image' && els.imgLockRatio.checked;
@@ -597,6 +673,8 @@ els.bgInput.addEventListener('change', () => {
     state.bgImage = img;
     state.bgBlob = file || null;
     state.bgScale = 1; // 新しい背景は cover フィットから始める
+    state.bgOffsetX = 0;
+    state.bgOffsetY = 0;
     render();
   });
   els.bgInput.value = '';
@@ -674,6 +752,19 @@ function applyRectInspector() {
 [els.rectColor, els.rectWidth, els.rectHeight, els.rectOpacity].forEach((el) => {
   el.addEventListener('input', applyRectInspector);
   el.addEventListener('change', applyRectInspector);
+});
+
+// 背景インスペクタ（拡大率 / 位置）の反映。
+function applyBgInspector() {
+  if (!isBgSelected()) return;
+  state.bgScale = clampNum(els.bgScale.value, BG_SCALE_MIN * 100, BG_SCALE_MAX * 100, 100) / 100;
+  state.bgOffsetX = clampNum(els.bgOffsetX.value, -10000, 10000, state.bgOffsetX || 0);
+  state.bgOffsetY = clampNum(els.bgOffsetY.value, -10000, 10000, state.bgOffsetY || 0);
+  render();
+}
+[els.bgScale, els.bgOffsetX, els.bgOffsetY].forEach((el) => {
+  el.addEventListener('input', applyBgInspector);
+  el.addEventListener('change', applyBgInspector);
 });
 
 // インスペクタの入力は即時反映。
@@ -765,7 +856,8 @@ async function buildCoverBlob() {
   }
   zip.file('manifest.json', JSON.stringify({ format: 'gina-cover', version: '1' }));
   zip.file('cover.json', JSON.stringify({
-    width: state.canvasW, height: state.canvasH, background, bgScale: state.bgScale, layers,
+    width: state.canvasW, height: state.canvasH, background,
+    bgScale: state.bgScale, bgOffsetX: state.bgOffsetX, bgOffsetY: state.bgOffsetY, layers,
   }, null, 2));
   return zip.generateAsync({ type: 'blob', compression: 'DEFLATE' });
 }
@@ -839,6 +931,8 @@ async function loadCoverFile(file) {
   state.bgImage = null;
   state.bgBlob = null;
   state.bgScale = (typeof doc.bgScale === 'number' && doc.bgScale > 0) ? doc.bgScale : 1;
+  state.bgOffsetX = (typeof doc.bgOffsetX === 'number') ? doc.bgOffsetX : 0;
+  state.bgOffsetY = (typeof doc.bgOffsetY === 'number') ? doc.bgOffsetY : 0;
   state.layers = [];
   state.selectedId = null;
   state.seq = 0;
@@ -910,6 +1004,15 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && !els.help.hidden) { e.preventDefault(); hideHelp(); return; }
 
   const editable = isEditableTarget(document.activeElement);
+
+  // Esc で選択解除（背景・レイヤー共通。入力欄フォーカス中は除く）。
+  if (e.key === 'Escape' && !editable && state.selectedId) {
+    e.preventDefault();
+    state.selectedId = null;
+    syncInspector();
+    render();
+    return;
+  }
 
   // === Ctrl / Cmd 系（Alt は対象外） ===
   if ((e.ctrlKey || e.metaKey) && !e.altKey) {
